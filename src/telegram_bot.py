@@ -67,7 +67,7 @@ def build_telegram_application(
         for start in range(0, len(answer), TELEGRAM_MESSAGE_LIMIT):
             await message.reply_text(answer[start : start + TELEGRAM_MESSAGE_LIMIT])
         if history is not None:
-            history.add(message.text, answer)
+            history.add(message.text, answer, user_name=user.full_name)
 
     application.add_handler(
         MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message)

@@ -10,14 +10,19 @@ class MessageExchange:
     recorded_at: datetime
     user_message: str
     reply: str
+    user_name: str = "User"
 
 
 class MessageHistory:
     def __init__(self) -> None:
         self._exchanges: deque[MessageExchange] = deque(maxlen=100)
 
-    def add(self, user_message: str, reply: str) -> None:
-        self._exchanges.append(MessageExchange(datetime.now(UTC), user_message, reply))
+    def add(
+        self, user_message: str, reply: str, *, user_name: str = "User"
+    ) -> None:
+        self._exchanges.append(
+            MessageExchange(datetime.now(UTC), user_message, reply, user_name)
+        )
 
     @property
     def exchanges(self) -> tuple[MessageExchange, ...]:

@@ -88,8 +88,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             '<h3>Exchange <time datetime="'
             f'{exchange.recorded_at.isoformat()}">'
             f'{exchange.recorded_at.strftime("%d %b %Y, %H:%M:%S UTC")}'
-            "</time></h3>"
-            '<p class="speaker">User</p>'
+            '</time> <span class="source">via Telegram</span></h3>'
+            f'<p class="speaker">{escape(exchange.user_name)}</p>'
             f'<p class="message">{escape(exchange.user_message)}</p>'
             '<p class="speaker">Dougal</p>'
             f'<p class="message reply">{escape(exchange.reply)}</p>'
