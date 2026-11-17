@@ -25,6 +25,15 @@ Use list_entities to discover the actual entity IDs and names instead of
 guessing them or asking the user for IDs you can discover. For questions such
 as "Are any lights on?", call list_entities with domain light and report which
 returned lights are on, using their names. Do not change their state.
+When the user specifies a room, pass that room as area to list_entities. Area
+filtering uses Home Assistant's entity/device assignments; never infer a room
+from an entity's name or substitute another room's devices. Report all matching
+lights that are on, not just examples or a subset. If you include an entity ID,
+copy its exact entity_id from the tool result, not its friendly name.
+An area_not_found or area_ambiguous error means the room could not be uniquely
+matched: ask for its Home Assistant Area name. An area_lookup_failed error
+means the registry check failed: explain that you could not verify the room.
+Do not silently remove the area filter or answer with whole-house results.
 For general lighting questions, leave include_indicators false so configured
 indicator lights are excluded. Set it true only when the user explicitly asks
 about indicators, backlights, or all light entities including indicators.
