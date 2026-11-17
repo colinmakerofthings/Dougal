@@ -49,6 +49,21 @@ class HomeAssistantClient:
         response.raise_for_status()
         return response.json()
 
+    async def list_entities(self, domain: str) -> list[dict[str, Any]]:
+        if not _SERVICE_PART.fullmatch(domain):
+            raise ValueError("Invalid Home Assistant domain")
+        response = await self._client.get("/api/states")
+        response.raise_for_status()
+        return [
+            {
+                "entity_id": entity["entity_id"],
+                "state": entity["state"],
+                "name": entity["attributes"].get("friendly_name") or entity["entity_id"],
+            }
+            for entity in response.json()
+            if entity["entity_id"].startswith(f"{domain}.")
+        ]
+
     async def call_service(
         self,
         domain: str,
