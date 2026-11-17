@@ -54,8 +54,8 @@ docker compose up --build -d
 
 Compose builds a Python 3.12 image for the host architecture, including
 Raspberry Pi 4 ARM64 and x86_64. Polling means no inbound Telegram port
-forwarding is needed. The optional port 8000 exposes only the health and
-metrics HTTP endpoints; restrict it to your trusted network.
+forwarding is needed. The optional port 8000 exposes a read-only landing page,
+health, and metrics HTTP endpoints; restrict it to your trusted network.
 
 ### Deploy from Git with Portainer
 
@@ -74,6 +74,15 @@ Stack's environment variables, provide:
 `http://<raspberry-pi-address>:8000/health` from your trusted network. Keep
 credentials in Portainer, not in the Git repository.
 
+- `http://localhost:8000/` shows a Dougal overview, service uptime, and links to
+  health and metrics, plus the latest 100 completed Telegram message/reply
+  exchanges across all allowlisted users, newest first. Refresh for updates.
+  History is held only in memory per service instance and cleared on restart;
+  it does not change the AI's conversation context or import earlier Telegram
+  messages. Names and Telegram IDs are not stored in history or displayed.
+  The page does not expose configuration or check external services.
+  **There is no login: anyone who can reach the page can read the message
+  contents.** Keep it on your trusted network and do not expose it publicly.
 - `http://localhost:8000/health` reports service health.
 - `http://localhost:8000/metrics` exposes basic Prometheus text-format request
   and uptime metrics.

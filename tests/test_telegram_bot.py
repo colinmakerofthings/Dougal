@@ -9,6 +9,7 @@ from telegram.constants import ChatType
 
 from src.agent import DougalAgent
 from src.config import Settings
+from src.history import MessageHistory
 from src.telegram_bot import build_telegram_application
 
 
@@ -49,7 +50,8 @@ async def test_provider_limits_get_safe_specific_replies(
             },
         )
     )
-    application = build_telegram_application(settings, agent)
+    history = MessageHistory()
+    application = build_telegram_application(settings, agent, history=history)
     update = MagicMock(spec=Update)
     update.effective_user.id = 123
     update.effective_chat.type = ChatType.PRIVATE
@@ -67,3 +69,52 @@ async def test_provider_limits_get_safe_specific_replies(
     assert "private-provider-details" not in caplog.text
     assert caplog.records
     assert all(record.exc_info is None for record in caplog.records)
+    assert len(history.exchanges) == 1
+    assert history.exchanges[0].reply == reply
+    assert "private-provider-details" not in history.exchanges[0].reply
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("user_id", "chat_type", "should_record"),
+    [
+        (123, ChatType.PRIVATE, True),
+        (999, ChatType.PRIVATE, False),
+        (123, ChatType.GROUP, False),
+    ],
+)
+async def test_only_authorized_private_exchanges_are_recorded(
+    user_id: int, chat_type: str, should_record: bool
+) -> None:
+    settings = Settings(
+        telegram_bot_token="123456:test-token",
+        allowed_telegram_user_ids={123},
+        openai_api_key="test-key",
+        home_assistant_url="http://ha.local",
+        home_assistant_token="test-token",
+    )
+    history = MessageHistory()
+    agent = MagicMock(spec=DougalAgent)
+    answer = "A" * 4100
+    agent.respond = AsyncMock(return_value=answer)
+    application = build_telegram_application(settings, agent, history=history)
+    update = MagicMock(spec=Update)
+    update.effective_user.id = user_id
+    update.effective_chat.type = chat_type
+    update.effective_message.text = "Hello"
+    update.effective_message.reply_text = AsyncMock()
+
+    await application.handlers[0][0].callback(update, MagicMock())
+
+    if should_record:
+        assert len(history.exchanges) == 1
+        assert history.exchanges[0].user_message == "Hello"
+        assert history.exchanges[0].reply == answer
+        assert update.effective_message.reply_text.await_count == 2
+        assert "".join(
+            call.args[0] for call in update.effective_message.reply_text.await_args_list
+        ) == answer
+    else:
+        assert history.exchanges == ()
+        agent.respond.assert_not_awaited()
+        update.effective_message.reply_text.assert_not_awaited()

@@ -9,6 +9,7 @@ from telegram.ext import Application, ContextTypes, MessageHandler, filters
 
 from src.agent import DougalAgent
 from src.config import Settings
+from src.history import MessageHistory
 
 logger = logging.getLogger(__name__)
 TELEGRAM_MESSAGE_LIMIT = 4096
@@ -17,6 +18,7 @@ TELEGRAM_MESSAGE_LIMIT = 4096
 def build_telegram_application(
     settings: Settings,
     agent: DougalAgent,
+    history: MessageHistory | None = None,
 ) -> Application:
     application = Application.builder().token(
         settings.telegram_bot_token.get_secret_value()
@@ -64,6 +66,8 @@ def build_telegram_application(
             answer = "Sorry, I couldn't reach the home assistant just now."
         for start in range(0, len(answer), TELEGRAM_MESSAGE_LIMIT):
             await message.reply_text(answer[start : start + TELEGRAM_MESSAGE_LIMIT])
+        if history is not None:
+            history.add(message.text, answer)
 
     application.add_handler(
         MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message)
