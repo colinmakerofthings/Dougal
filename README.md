@@ -91,6 +91,25 @@ credentials in Portainer, not in the Git repository.
 - `http://localhost:8000/health` reports service health.
 - `http://localhost:8000/metrics` exposes basic Prometheus text-format request
   and uptime metrics.
+- `http://localhost:8000/api/status` returns the last accepted Telegram message
+  receipt time as JSON.
+
+### Status API
+
+The read-only `GET /api/status` endpoint returns HTTP 200 with a JSON body:
+
+```json
+{"last_message_received": "2026-11-17T16:40:00+00:00"}
+```
+
+The value is an ISO 8601 UTC timestamp recorded when Dougal receives an
+allowlisted user's private text message, before waiting for the AI or sending
+a reply. Ignored messages and commands do not update it. It is `null` until
+the first accepted message after each restart. No message contents, names,
+user IDs, or credentials are returned.
+
+Responses include `Cache-Control: no-store`. The endpoint has no authentication;
+keep it on your trusted network.
 
 ## Run locally
 
