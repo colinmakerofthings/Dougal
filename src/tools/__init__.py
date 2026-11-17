@@ -12,10 +12,28 @@ ToolHandler = Callable[[dict[str, Any]], Awaitable[Any]]
 class ToolRegistry:
     def __init__(self, home_assistant: HomeAssistantClient) -> None:
         self._handlers: dict[str, ToolHandler] = {
+            "get_status": self._get_status,
             "get_state": self._get_state,
             "call_service": self._call_service,
         }
         self.definitions = [
+            {
+                "type": "function",
+                "function": {
+                    "name": "get_status",
+                    "description": (
+                        "Check whether the configured Home Assistant API is running "
+                        "and accessible. Use when asked if Home Assistant is running, "
+                        "online, reachable, or connected. No entity ID is needed."
+                    ),
+                    "parameters": {
+                        "type": "object",
+                        "properties": {},
+                        "required": [],
+                        "additionalProperties": False,
+                    },
+                },
+            },
             {
                 "type": "function",
                 "function": {
@@ -67,6 +85,9 @@ class ToolRegistry:
             raise ValueError(f"Unknown tool: {name}")
         result = await handler(json.loads(arguments))
         return json.dumps(result, default=str)
+
+    async def _get_status(self, arguments: dict[str, Any]) -> Any:
+        return await self._home_assistant.get_status()
 
     async def _get_state(self, arguments: dict[str, Any]) -> Any:
         return await self._home_assistant.get_state(arguments["entity_id"])
