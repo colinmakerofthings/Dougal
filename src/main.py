@@ -40,6 +40,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         ha_client = HomeAssistantClient(
             configured.home_assistant_url,
             configured.home_assistant_token.get_secret_value(),
+            indicator_label=configured.dougal_indicator_label,
         )
         agent = DougalAgent(
             openai_client,

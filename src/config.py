@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     openai_model: str = "gpt-5.4-nano"
     home_assistant_url: str
     home_assistant_token: SecretStr
+    dougal_indicator_label: str = ""
 
     @field_validator("home_assistant_url")
     @classmethod

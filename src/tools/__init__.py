@@ -7,7 +7,7 @@ from typing import Any
 
 import httpx
 
-from src.tools.home_assistant import HomeAssistantClient
+from src.tools.home_assistant import HomeAssistantClient, IndicatorLabelLookupError
 
 ToolHandler = Callable[[dict[str, Any]], Awaitable[Any]]
 logger = logging.getLogger(__name__)
@@ -65,7 +65,10 @@ class ToolRegistry:
                         "Discover Home Assistant entities in a domain, with their "
                         "names, IDs, and current states. Use domain light to answer "
                         "questions such as 'Are any lights on?' without guessing "
-                        "entity IDs. Includes unavailable and unknown entities."
+                        "entity IDs. Includes unavailable and unknown entities. "
+                        "General light discovery excludes the configured indicator "
+                        "label. Set include_indicators true only for explicit "
+                        "questions about indicators, backlights, or all light entities."
                     ),
                     "parameters": {
                         "type": "object",
@@ -73,7 +76,13 @@ class ToolRegistry:
                             "domain": {
                                 "type": "string",
                                 "description": "Entity domain, for example light or switch.",
-                            }
+                            },
+                            "include_indicators": {
+                                "type": "boolean",
+                                "description": (
+                                    "Include indicator-labelled lights. Defaults to false."
+                                ),
+                            },
                         },
                         "required": ["domain"],
                         "additionalProperties": False,
@@ -113,6 +122,9 @@ class ToolRegistry:
             raise ValueError(f"Unknown tool: {name}")
         try:
             result = await handler(json.loads(arguments))
+        except IndicatorLabelLookupError:
+            logger.warning("Home Assistant indicator label lookup failed")
+            result = {"error": "indicator_label_lookup_failed"}
         except httpx.HTTPStatusError as error:
             status_code = error.response.status_code
             logger.warning("Home Assistant tool %s returned HTTP %s", name, status_code)
@@ -135,7 +147,10 @@ class ToolRegistry:
         return await self._home_assistant.get_state(arguments["entity_id"])
 
     async def _list_entities(self, arguments: dict[str, Any]) -> Any:
-        return await self._home_assistant.list_entities(arguments["domain"])
+        return await self._home_assistant.list_entities(
+            arguments["domain"],
+            include_indicators=arguments.get("include_indicators", False),
+        )
 
     async def _call_service(self, arguments: dict[str, Any]) -> Any:
         return await self._home_assistant.call_service(
