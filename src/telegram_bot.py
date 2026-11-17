@@ -63,9 +63,15 @@ def build_telegram_application(
                     "Ah, I seem to be getting ahead of myself. "
                     "The AI service needs a breather; please try again in a little while."
                 )
-        except Exception:
-            logger.exception("Failed to process an authorized Telegram message")
-            answer = "Sorry, I couldn't reach the home assistant just now."
+        except Exception as error:
+            logger.error(
+                "Failed to process an authorized Telegram message (%s)",
+                type(error).__name__,
+            )
+            answer = (
+                "Ah, something went wrong while handling that. "
+                "I couldn't complete the request just now; please try again."
+            )
         for start in range(0, len(answer), TELEGRAM_MESSAGE_LIMIT):
             await message.reply_text(answer[start : start + TELEGRAM_MESSAGE_LIMIT])
         if history is not None:

@@ -10,18 +10,73 @@ from src.tools.home_assistant import HomeAssistantClient
 
 
 @pytest.mark.asyncio
-async def test_status_tool_result_is_returned_to_model_before_reply() -> None:
+@pytest.mark.parametrize(
+    ("tool_name", "arguments", "question", "ha_status", "ha_json", "expected", "answer"),
+    [
+        (
+            "get_status",
+            "{}",
+            "Is Home Assistant running?",
+            200,
+            {"message": "API running."},
+            {"status": "running"},
+            "Ah sure, Home Assistant is answering. The API is running!",
+        ),
+        (
+            "list_entities",
+            '{"domain":"light"}',
+            "Are any lights on?",
+            200,
+            [
+                {
+                    "entity_id": "light.kitchen",
+                    "state": "on",
+                    "attributes": {"friendly_name": "Kitchen"},
+                },
+                {"entity_id": "light.bedroom", "state": "unavailable", "attributes": {}},
+            ],
+            [
+                {"entity_id": "light.kitchen", "state": "on", "name": "Kitchen"},
+                {
+                    "entity_id": "light.bedroom",
+                    "state": "unavailable",
+                    "name": "light.bedroom",
+                },
+            ],
+            "The Kitchen light is on. I couldn't confirm the bedroom light's state.",
+        ),
+        (
+            "list_entities",
+            '{"domain":"light"}',
+            "Are any lights on?",
+            403,
+            {"message": "private-response-details"},
+            {"error": "authentication_failed", "http_status": 403},
+            "Home Assistant denied access, so I couldn't check your lights.",
+        ),
+    ],
+)
+async def test_tool_result_is_returned_to_model_before_reply(
+    tool_name: str,
+    arguments: str,
+    question: str,
+    ha_status: int,
+    ha_json: dict[str, object] | list[dict[str, object]],
+    expected: dict[str, object] | list[dict[str, object]],
+    answer: str,
+) -> None:
     api_checks = []
 
     def ha_handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "GET"
         api_checks.append(request.url.path)
-        return httpx.Response(200, json={"message": "API running."})
+        return httpx.Response(ha_status, json=ha_json)
 
     def ai_handler(request: httpx.Request) -> httpx.Response:
         payload = json.loads(request.content)
         if payload["messages"][-1]["role"] == "user":
             assert any(
-                tool["function"]["name"] == "get_status" for tool in payload["tools"]
+                tool["function"]["name"] == tool_name for tool in payload["tools"]
             )
             message = {
                 "role": "assistant",
@@ -30,7 +85,7 @@ async def test_status_tool_result_is_returned_to_model_before_reply() -> None:
                     {
                         "id": "status-check",
                         "type": "function",
-                        "function": {"name": "get_status", "arguments": "{}"},
+                        "function": {"name": tool_name, "arguments": arguments},
                     }
                 ],
             }
@@ -39,10 +94,10 @@ async def test_status_tool_result_is_returned_to_model_before_reply() -> None:
             result = payload["messages"][-1]
             assert result["role"] == "tool"
             assert result["tool_call_id"] == "status-check"
-            assert json.loads(result["content"]) == {"status": "running"}
+            assert json.loads(result["content"]) == expected
             message = {
                 "role": "assistant",
-                "content": "Ah sure, Home Assistant is answering. The API is running!",
+                "content": answer,
             }
             finish_reason = "stop"
         return httpx.Response(
@@ -70,7 +125,7 @@ async def test_status_tool_result_is_returned_to_model_before_reply() -> None:
     ):
         tools = ToolRegistry(HomeAssistantClient("http://ha.local", "unused", ha_http))
         agent = DougalAgent(ai, "test-model", tools)
-        reply = await agent.respond("Is Home Assistant running?")
+        reply = await agent.respond(question)
 
-    assert reply == "Ah sure, Home Assistant is answering. The API is running!"
-    assert api_checks == ["/api/"]
+    assert reply == answer
+    assert api_checks == ["/api/" if tool_name == "get_status" else "/api/states"]

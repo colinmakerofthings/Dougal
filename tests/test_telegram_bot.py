@@ -142,3 +142,34 @@ async def test_only_authorized_private_exchanges_are_recorded(
         assert history.last_message_received_at is None
         agent.respond.assert_not_awaited()
         update.effective_message.reply_text.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_unexpected_error_does_not_claim_home_assistant_is_unreachable(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    settings = Settings(
+        telegram_bot_token="123456:test-token",
+        allowed_telegram_user_ids={123},
+        openai_api_key="test-key",
+        home_assistant_url="http://ha.local",
+        home_assistant_token="test-token",
+    )
+    agent = MagicMock(spec=DougalAgent)
+    agent.respond = AsyncMock(side_effect=RuntimeError("private-error-details"))
+    application = build_telegram_application(settings, agent)
+    update = MagicMock(spec=Update)
+    update.effective_user = User(id=123, first_name="Colin", is_bot=False)
+    update.effective_chat.type = ChatType.PRIVATE
+    update.effective_message.text = "Are any lights on?"
+    update.effective_message.reply_text = AsyncMock()
+
+    await application.handlers[0][0].callback(update, MagicMock())
+
+    reply = update.effective_message.reply_text.call_args.args[0]
+    assert "couldn't complete the request" in reply
+    assert "couldn't reach" not in reply
+    assert "private-error-details" not in reply
+    assert "private-error-details" not in caplog.text
+    assert caplog.records
+    assert all(record.exc_info is None for record in caplog.records)

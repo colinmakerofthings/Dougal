@@ -1,12 +1,16 @@
 """Registry of the agent's explicitly available tools."""
 
 import json
+import logging
 from collections.abc import Awaitable, Callable
 from typing import Any
+
+import httpx
 
 from src.tools.home_assistant import HomeAssistantClient
 
 ToolHandler = Callable[[dict[str, Any]], Awaitable[Any]]
+logger = logging.getLogger(__name__)
 
 
 class ToolRegistry:
@@ -14,6 +18,7 @@ class ToolRegistry:
         self._handlers: dict[str, ToolHandler] = {
             "get_status": self._get_status,
             "get_state": self._get_state,
+            "list_entities": self._list_entities,
             "call_service": self._call_service,
         }
         self.definitions = [
@@ -55,6 +60,29 @@ class ToolRegistry:
             {
                 "type": "function",
                 "function": {
+                    "name": "list_entities",
+                    "description": (
+                        "Discover Home Assistant entities in a domain, with their "
+                        "names, IDs, and current states. Use domain light to answer "
+                        "questions such as 'Are any lights on?' without guessing "
+                        "entity IDs. Includes unavailable and unknown entities."
+                    ),
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "domain": {
+                                "type": "string",
+                                "description": "Entity domain, for example light or switch.",
+                            }
+                        },
+                        "required": ["domain"],
+                        "additionalProperties": False,
+                    },
+                },
+            },
+            {
+                "type": "function",
+                "function": {
                     "name": "call_service",
                     "description": (
                         "Call a Home Assistant service. Only do this when the user "
@@ -83,7 +111,21 @@ class ToolRegistry:
         handler = self._handlers.get(name)
         if handler is None:
             raise ValueError(f"Unknown tool: {name}")
-        result = await handler(json.loads(arguments))
+        try:
+            result = await handler(json.loads(arguments))
+        except httpx.HTTPStatusError as error:
+            status_code = error.response.status_code
+            logger.warning("Home Assistant tool %s returned HTTP %s", name, status_code)
+            if status_code in (401, 403):
+                error_code = "authentication_failed"
+            elif status_code == 404:
+                error_code = "not_found"
+            else:
+                error_code = "http_error"
+            result = {"error": error_code, "http_status": status_code}
+        except httpx.RequestError:
+            logger.warning("Home Assistant tool %s could not reach the API", name)
+            result = {"error": "unreachable"}
         return json.dumps(result, default=str)
 
     async def _get_status(self, arguments: dict[str, Any]) -> Any:
@@ -91,6 +133,9 @@ class ToolRegistry:
 
     async def _get_state(self, arguments: dict[str, Any]) -> Any:
         return await self._home_assistant.get_state(arguments["entity_id"])
+
+    async def _list_entities(self, arguments: dict[str, Any]) -> Any:
+        return await self._home_assistant.list_entities(arguments["domain"])
 
     async def _call_service(self, arguments: dict[str, Any]) -> Any:
         return await self._home_assistant.call_service(
