@@ -36,6 +36,10 @@ The service can read entity states and invoke services permitted by the
 configured Home Assistant token. Use a dedicated HA account/token with only
 the access you intend Dougal to have.
 
+If the AI provider reports exhausted API credits, Dougal replies with a
+top-up reminder. Temporary rate limits instead receive a request to try
+again later.
+
 ## Run with Docker Compose
 
 ```sh
