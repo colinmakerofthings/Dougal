@@ -47,6 +47,23 @@ Raspberry Pi 4 ARM64 and x86_64. Polling means no inbound Telegram port
 forwarding is needed. The optional port 8000 exposes only the health and
 metrics HTTP endpoints; restrict it to your trusted network.
 
+### Deploy from Git with Portainer
+
+In Portainer, create a Stack using **Git repository**, enter this repository's
+URL and branch, and set the Compose path to `docker-compose.yml`. In the
+Stack's environment variables, provide:
+
+- `TELEGRAM_BOT_TOKEN`
+- `ALLOWED_TELEGRAM_USER_IDS` as a JSON array, e.g. `[123456789]`
+- `OPENAI_API_KEY`
+- `HOME_ASSISTANT_URL`
+- `HOME_ASSISTANT_TOKEN`
+
+`OPENAI_BASE_URL` is optional (leave it unset for OpenAI), and
+`OPENAI_MODEL` defaults to `gpt-5.4-nano`. Deploy the Stack, then check
+`http://<raspberry-pi-address>:8000/health` from your trusted network. Keep
+credentials in Portainer, not in the Git repository.
+
 - `http://localhost:8000/health` reports service health.
 - `http://localhost:8000/metrics` exposes basic Prometheus text-format request
   and uptime metrics.
