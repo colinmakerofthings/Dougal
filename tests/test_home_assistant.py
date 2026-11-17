@@ -1,7 +1,11 @@
+import asyncio
 import json
+from types import SimpleNamespace
 
 import httpx
 import pytest
+from fastapi import FastAPI, WebSocket
+from httpx_ws.transport import ASGIWebSocketTransport
 
 from src.tools import ToolRegistry
 from src.tools.home_assistant import HomeAssistantClient
@@ -229,3 +233,226 @@ async def test_tool_connection_failure_reports_unreachable(
     assert json.loads(result) == {"error": "unreachable"}
     assert caplog.records
     assert "private-error-details" not in caplog.text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("include_indicators", [False, True])
+async def test_indicator_filter_uses_exact_entity_label_and_allows_explicit_override(
+    include_indicators: bool,
+) -> None:
+    app = FastAPI()
+    registry_commands: list[str] = []
+    entities = [
+        {"entity_id": "light.kitchen", "labels": []},
+        {"entity_id": "light.backlight", "labels": ["opaque-label-id"]},
+        {"entity_id": "light.prefix", "labels": ["prefix-label-id"]},
+        {"entity_id": "light.lowercase", "labels": ["lowercase-label-id"]},
+        {"entity_id": "light.indicator_lighting_named_only", "labels": []},
+        {"entity_id": "switch.kitchen", "labels": ["opaque-label-id"]},
+    ]
+
+    @app.websocket("/api/websocket")
+    async def registry(websocket: WebSocket) -> None:
+        await websocket.accept()
+        await websocket.send_json({"type": "auth_required"})
+        assert await websocket.receive_json() == {
+            "type": "auth",
+            "access_token": "test-token",
+        }
+        await websocket.send_json({"type": "auth_ok"})
+        for expected_type, result in [
+            (
+                "config/label_registry/list",
+                [
+                    {
+                        "label_id": "opaque-label-id",
+                        "name": "Indicator_Lighting",
+                        "description": "x" * 70000,
+                    },
+                    {"label_id": "prefix-label-id", "name": "Indicator_Lighting_Extra"},
+                    {"label_id": "lowercase-label-id", "name": "indicator_lighting"},
+                ],
+            ),
+            ("config/entity_registry/list", entities),
+        ]:
+            command = await websocket.receive_json()
+            assert command["type"] == expected_type
+            registry_commands.append(command["type"])
+            await websocket.send_json(
+                {"id": command["id"], "type": "result", "success": True, "result": result}
+            )
+        await websocket.receive()
+
+    @app.get("/api/states")
+    async def states() -> list[dict[str, object]]:
+        return [
+            {"entity_id": entity["entity_id"], "state": "on", "attributes": {}}
+            for entity in entities
+        ]
+
+    async with httpx.AsyncClient(
+        transport=ASGIWebSocketTransport(app=app), base_url="http://ha.local"
+    ) as http:
+        tools = ToolRegistry(
+            HomeAssistantClient(
+                "http://ha.local",
+                "test-token",
+                http,
+                indicator_label="Indicator_Lighting",
+            )
+        )
+        result = json.loads(
+            await tools.execute(
+                "list_entities",
+                json.dumps({"domain": "light", "include_indicators": include_indicators}),
+            )
+        )
+        switches = json.loads(
+            await tools.execute("list_entities", '{"domain":"switch"}')
+        )
+
+    assert [entity["entity_id"] for entity in result] == (
+        [
+            "light.kitchen",
+            "light.backlight",
+            "light.prefix",
+            "light.lowercase",
+            "light.indicator_lighting_named_only",
+        ]
+        if include_indicators
+        else [
+            "light.kitchen",
+            "light.prefix",
+            "light.lowercase",
+            "light.indicator_lighting_named_only",
+        ]
+    )
+    assert switches == [
+        {"entity_id": "switch.kitchen", "state": "on", "name": "switch.kitchen"}
+    ]
+    assert registry_commands == (
+        []
+        if include_indicators
+        else [
+            "config/label_registry/list",
+            "config/entity_registry/list",
+        ]
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "failure",
+    [
+        "authentication",
+        "missing_label",
+        "denied",
+        "invalid_labels",
+        "invalid_entities",
+        "disconnect",
+    ],
+)
+async def test_indicator_lookup_failure_is_explicit_and_never_returns_unfiltered_lights(
+    failure: str,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    app = FastAPI()
+    state_requests: list[str] = []
+
+    @app.websocket("/api/websocket")
+    async def registry(websocket: WebSocket) -> None:
+        await websocket.accept()
+        await websocket.send_json({"type": "auth_required"})
+        await websocket.receive_json()
+        if failure == "authentication":
+            await websocket.send_json(
+                {"type": "auth_invalid", "message": "private-error-details"}
+            )
+        elif failure == "disconnect":
+            await websocket.close(code=1008, reason="private-error-details")
+            return
+        else:
+            await websocket.send_json({"type": "auth_ok"})
+            command = await websocket.receive_json()
+            labels: object = [{"label_id": "actual-id", "name": "Indicator_Lighting"}]
+            if failure == "missing_label":
+                labels = [{"label_id": "other", "name": "Indicator_Lighting_Extra"}]
+            elif failure == "invalid_labels":
+                labels = [{"name": "Indicator_Lighting"}]
+            await websocket.send_json(
+                {
+                    "id": command["id"],
+                    "type": "result",
+                    "success": failure != "denied",
+                    "result": labels,
+                    "error": {"message": "private-error-details"},
+                }
+            )
+            if failure == "invalid_entities":
+                command = await websocket.receive_json()
+                await websocket.send_json(
+                    {
+                        "id": command["id"],
+                        "type": "result",
+                        "success": True,
+                        "result": [
+                            {"entity_id": "light.backlight", "labels": "not-a-list"}
+                        ],
+                    }
+                )
+        await websocket.receive()
+
+    @app.get("/api/states")
+    async def states() -> list[dict[str, object]]:
+        state_requests.append("called")
+        return []
+
+    async with httpx.AsyncClient(
+        transport=ASGIWebSocketTransport(app=app), base_url="http://ha.local"
+    ) as http:
+        tools = ToolRegistry(
+            HomeAssistantClient(
+                "http://ha.local",
+                "test-token",
+                http,
+                indicator_label="Indicator_Lighting",
+            )
+        )
+        result = await tools.execute("list_entities", '{"domain":"light"}')
+
+    assert json.loads(result) == {"error": "indicator_label_lookup_failed"}
+    assert state_requests == []
+    assert caplog.records
+    assert "private-error-details" not in result
+    assert "private-error-details" not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_indicator_lookup_timeout_is_reported_without_hanging(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app = FastAPI()
+
+    @app.websocket("/api/websocket")
+    async def registry(websocket: WebSocket) -> None:
+        await websocket.accept()
+        await websocket.receive()
+
+    monkeypatch.setattr(
+        "src.tools.home_assistant.asyncio",
+        SimpleNamespace(timeout=lambda _: asyncio.timeout(0.05)),
+    )
+    async with httpx.AsyncClient(
+        transport=ASGIWebSocketTransport(app=app), base_url="http://ha.local"
+    ) as http:
+        tools = ToolRegistry(
+            HomeAssistantClient(
+                "http://ha.local",
+                "test-token",
+                http,
+                indicator_label="Indicator_Lighting",
+            )
+        )
+        result = await tools.execute("list_entities", '{"domain":"light"}')
+
+    assert json.loads(result) == {"error": "indicator_label_lookup_failed"}

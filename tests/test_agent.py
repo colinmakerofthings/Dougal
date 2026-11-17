@@ -43,7 +43,7 @@ from src.tools.home_assistant import HomeAssistantClient
                     "name": "light.bedroom",
                 },
             ],
-            "The Kitchen light is on. I couldn't confirm the bedroom light's state.",
+            "The Kitchen light is on.",
         ),
         (
             "list_entities",

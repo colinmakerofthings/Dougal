@@ -11,6 +11,7 @@ services:
       OPENAI_MODEL: ${OPENAI_MODEL:-gpt-5.4-nano}
       HOME_ASSISTANT_URL: ${HOME_ASSISTANT_URL:?Set the Home Assistant URL}
       HOME_ASSISTANT_TOKEN: ${HOME_ASSISTANT_TOKEN:?Set the Home Assistant token}
+      DOUGAL_INDICATOR_LABEL: ${DOUGAL_INDICATOR_LABEL:-}
     ports:
       - "8000:8000"
     healthcheck:

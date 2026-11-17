@@ -44,9 +44,42 @@ that every connected device or integration is healthy.
 
 Ask "Are any lights on?" to discover the lights visible to Dougal and check
 their current states without supplying entity IDs. Discovery returns only the
-requested domain's names, IDs, and states to the AI. Unknown or unavailable
-states are not treated as off. Tool failures distinguish access denied, missing
-entities or endpoints, HTTP errors, and connection failures.
+requested domain's names, IDs, and states to the AI. Routine lighting summaries
+omit commentary about unavailable or unknown devices; those states remain
+available for direct entity queries and troubleshooting and are never treated
+as off. Tool failures distinguish access denied, missing entities or endpoints,
+HTTP errors, and connection failures.
+
+### Indicator lighting
+
+To exclude switch backlights and status LEDs from general light discovery,
+apply the `Indicator_Lighting` label to those **entities** in Home Assistant,
+then set this optional environment variable in `.env` or your Portainer Stack:
+
+```dotenv
+DOUGAL_INDICATOR_LABEL=Indicator_Lighting
+```
+
+Recreate the container after changing the setting. The value is the exact,
+case-sensitive Home Assistant **label name**, not its internal label ID.
+Dougal resolves the name through HA's label registry and checks labels attached
+directly to entities. Device and area labels are not inherited. There is no
+prefix matching or matching against entity IDs or friendly names.
+
+With the setting enabled, `list_entities` excludes labelled entities from the
+`light` domain by default, so general questions such as "Are any lights on?"
+do not include them. Explicit questions about indicators or backlights can use
+`include_indicators: true` to include all light entities. This is a discovery
+filter, not an access restriction: direct state reads and service calls are
+unchanged. Other entity domains are unaffected.
+
+Leaving the variable blank or unset disables filtering and preserves discovery
+of all lights. Label changes are read on each filtered discovery request.
+Dougal uses read-only label/entity registry commands over Home Assistant's
+authenticated WebSocket API; the reverse proxy, if any, must allow
+`/api/websocket`. This does not require the admin-only REST template endpoint.
+If the configured label is missing, registry access fails, or the lookup times
+out, Dougal reports a filtering failure rather than silently including indicators.
 
 If the AI provider reports exhausted API credits, Dougal replies with a
 top-up reminder. Temporary rate limits instead receive a request to try
@@ -79,6 +112,8 @@ Stack's environment variables, provide:
 `OPENAI_MODEL` defaults to `gpt-5.4-nano`. Deploy the Stack, then check
 `http://<raspberry-pi-address>:8000/health` from your trusted network. Keep
 credentials in Portainer, not in the Git repository.
+`DOUGAL_INDICATOR_LABEL` is also optional; set it to `Indicator_Lighting` to
+enable the entity-label filtering described above.
 
 - `http://localhost:8000/` shows a Dougal overview, service uptime, and links to
   health and metrics, plus the latest 100 completed Telegram message/reply
