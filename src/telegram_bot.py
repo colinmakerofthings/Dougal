@@ -2,6 +2,7 @@
 
 import logging
 
+from openai import RateLimitError
 from telegram import Update
 from telegram.constants import ChatType
 from telegram.ext import Application, ContextTypes, MessageHandler, filters
@@ -41,6 +42,23 @@ def build_telegram_application(
             return
         try:
             answer = await agent.respond(message.text)
+        except RateLimitError as error:
+            if (
+                error.code in ("credit_balance_exhausted", "insufficient_quota")
+                or error.type == "insufficient_quota"
+            ):
+                logger.warning("AI provider quota exhausted")
+                answer = (
+                    "Ah, I'm afraid I've run out of API credits. "
+                    "I checked down the back of the sofa, but no luck. "
+                    "Please top up the OpenAI API balance, then try me again."
+                )
+            else:
+                logger.warning("AI provider rate limit reached")
+                answer = (
+                    "Ah, I seem to be getting ahead of myself. "
+                    "The AI service needs a breather; please try again in a little while."
+                )
         except Exception:
             logger.exception("Failed to process an authorized Telegram message")
             answer = "Sorry, I couldn't reach the home assistant just now."
