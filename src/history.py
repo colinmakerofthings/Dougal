@@ -1,4 +1,4 @@
-"""Bounded, process-local history of completed Telegram exchanges."""
+"""Process-local Telegram activity and bounded completed-exchange history."""
 
 from collections import deque
 from dataclasses import dataclass
@@ -16,6 +16,10 @@ class MessageExchange:
 class MessageHistory:
     def __init__(self) -> None:
         self._exchanges: deque[MessageExchange] = deque(maxlen=100)
+        self.last_message_received_at: datetime | None = None
+
+    def record_received(self) -> None:
+        self.last_message_received_at = datetime.now(UTC)
 
     def add(
         self, user_message: str, reply: str, *, user_name: str = "User"

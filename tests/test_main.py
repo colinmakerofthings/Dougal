@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -77,6 +78,44 @@ async def test_existing_health_and_metrics_are_unchanged(app: FastAPI) -> None:
     assert metrics.headers["content-type"].startswith("text/plain")
     assert "dougal_http_requests_total 2\n" in metrics.text
     assert "dougal_uptime_seconds 0.00\n" in metrics.text
+
+
+@pytest.mark.asyncio
+async def test_status_reports_last_received_time_without_message_details(
+    app: FastAPI, settings: Settings
+) -> None:
+    from src.main import create_app
+
+    history = app.state.message_history
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        initial = await client.get("/api/status")
+        assert initial.status_code == 200
+        assert initial.json() == {"last_message_received": None}
+
+        received_at = datetime(2026, 11, 17, 16, 40, 0, tzinfo=UTC)
+        with patch("src.history.datetime") as clock:
+            clock.now.return_value = received_at
+            history.record_received()
+
+        response = await client.get("/api/status")
+        assert response.status_code == 200
+        assert response.json() == {
+            "last_message_received": "2026-11-17T16:40:00+00:00"
+        }
+        assert response.headers["cache-control"] == "no-store"
+        assert history.exchanges == ()
+
+        history.add("private-message", "private-reply", user_name="private-name")
+        after_reply = await client.get("/api/status")
+        assert after_reply.json() == response.json()
+
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=create_app(settings)), base_url="http://test"
+    ) as client:
+        restarted = await client.get("/api/status")
+    assert restarted.json() == {"last_message_received": None}
 
 
 @pytest.mark.asyncio

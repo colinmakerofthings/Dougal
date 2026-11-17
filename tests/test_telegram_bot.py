@@ -1,5 +1,6 @@
 import logging
-from unittest.mock import AsyncMock, MagicMock
+from datetime import UTC, datetime
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
@@ -79,15 +80,20 @@ async def test_provider_limits_get_safe_specific_replies(
 @pytest.mark.asyncio
 @pytest.mark.parametrize("last_name", [None, "Brown"])
 @pytest.mark.parametrize(
-    ("user_id", "chat_type", "should_record"),
+    ("user_id", "chat_type", "should_record", "message_text"),
     [
-        (123, ChatType.PRIVATE, True),
-        (999, ChatType.PRIVATE, False),
-        (123, ChatType.GROUP, False),
+        (123, ChatType.PRIVATE, True, "Hello"),
+        (999, ChatType.PRIVATE, False, "Hello"),
+        (123, ChatType.GROUP, False, "Hello"),
+        (123, ChatType.PRIVATE, False, None),
     ],
 )
 async def test_only_authorized_private_exchanges_are_recorded(
-    user_id: int, chat_type: str, should_record: bool, last_name: str | None
+    user_id: int,
+    chat_type: str,
+    should_record: bool,
+    message_text: str | None,
+    last_name: str | None,
 ) -> None:
     settings = Settings(
         telegram_bot_token="123456:test-token",
@@ -99,17 +105,26 @@ async def test_only_authorized_private_exchanges_are_recorded(
     history = MessageHistory()
     agent = MagicMock(spec=DougalAgent)
     answer = "A" * 4100
-    agent.respond = AsyncMock(return_value=answer)
+    received_at = datetime(2026, 11, 17, 16, 40, 0, tzinfo=UTC)
+
+    async def respond(text: str) -> str:
+        assert history.last_message_received_at == received_at
+        assert history.exchanges == ()
+        return answer
+
+    agent.respond = AsyncMock(side_effect=respond)
     application = build_telegram_application(settings, agent, history=history)
     update = MagicMock(spec=Update)
     update.effective_user = User(
         id=user_id, first_name="Colin", last_name=last_name, is_bot=False
     )
     update.effective_chat.type = chat_type
-    update.effective_message.text = "Hello"
+    update.effective_message.text = message_text
     update.effective_message.reply_text = AsyncMock()
 
-    await application.handlers[0][0].callback(update, MagicMock())
+    with patch("src.history.datetime") as clock:
+        clock.now.return_value = received_at
+        await application.handlers[0][0].callback(update, MagicMock())
 
     if should_record:
         assert len(history.exchanges) == 1
@@ -124,5 +139,6 @@ async def test_only_authorized_private_exchanges_are_recorded(
         ) == answer
     else:
         assert history.exchanges == ()
+        assert history.last_message_received_at is None
         agent.respond.assert_not_awaited()
         update.effective_message.reply_text.assert_not_awaited()

@@ -42,6 +42,8 @@ def build_telegram_application(
             return
         if not message.text:
             return
+        if history is not None:
+            history.record_received()
         try:
             answer = await agent.respond(message.text)
         except RateLimitError as error:

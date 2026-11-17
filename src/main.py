@@ -8,7 +8,7 @@ from html import escape
 from pathlib import Path
 
 import httpx
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Response
 from fastapi.responses import HTMLResponse, PlainTextResponse
 from openai import AsyncOpenAI
 
@@ -104,6 +104,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get("/health")
     async def health() -> dict[str, str]:
         return {"status": "ok"}
+
+    @app.get("/api/status")
+    async def status(response: Response) -> dict[str, str | None]:
+        response.headers["Cache-Control"] = "no-store"
+        received_at = history.last_message_received_at
+        return {
+            "last_message_received": (
+                received_at.isoformat() if received_at is not None else None
+            )
+        }
 
     @app.get("/metrics", response_class=PlainTextResponse)
     async def metrics() -> str:
