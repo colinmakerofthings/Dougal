@@ -3,7 +3,8 @@
 Dougal is a lightweight, self-hosted Telegram assistant for Home Assistant. It
 uses an OpenAI-compatible chat-completions API for natural language and tool
 calling, while Home Assistant access stays on your own network. Version 0.1
-supports reading one entity's state and calling a Home Assistant service.
+supports checking Home Assistant API availability, reading one entity's state,
+and calling a Home Assistant service.
 
 ## Requirements
 
@@ -35,6 +36,11 @@ Chat Completions tools interface.
 The service can read entity states and invoke services permitted by the
 configured Home Assistant token. Use a dedicated HA account/token with only
 the access you intend Dougal to have.
+
+Ask "Is Home Assistant running?" to check the configured API directly, without
+providing an entity ID. Dougal distinguishes successful API access from denied
+authentication, an unreachable API, and HTTP errors. This check does not verify
+that every connected device or integration is healthy.
 
 If the AI provider reports exhausted API credits, Dougal replies with a
 top-up reminder. Temporary rate limits instead receive a request to try

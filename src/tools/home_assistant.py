@@ -1,5 +1,6 @@
 """Small asynchronous Home Assistant REST API client."""
 
+import logging
 import re
 from typing import Any
 from urllib.parse import quote
@@ -7,6 +8,7 @@ from urllib.parse import quote
 import httpx
 
 
+logger = logging.getLogger(__name__)
 _ENTITY_ID = re.compile(r"^[a-z0-9_]+\.[a-z0-9_]+$")
 _SERVICE_PART = re.compile(r"^[a-z0-9_]+$")
 
@@ -24,6 +26,21 @@ class HomeAssistantClient:
             timeout=httpx.Timeout(10.0),
         )
         self._owns_client = client is None
+
+    async def get_status(self) -> dict[str, str | int]:
+        try:
+            response = await self._client.get("/api/")
+            response.raise_for_status()
+        except httpx.HTTPStatusError as error:
+            status_code = error.response.status_code
+            logger.warning("Home Assistant status check returned HTTP %s", status_code)
+            if status_code in (401, 403):
+                return {"status": "authentication_failed", "http_status": status_code}
+            return {"status": "http_error", "http_status": status_code}
+        except httpx.RequestError:
+            logger.warning("Home Assistant status check could not reach the API")
+            return {"status": "unreachable"}
+        return {"status": "running"}
 
     async def get_state(self, entity_id: str) -> dict[str, Any]:
         if not _ENTITY_ID.fullmatch(entity_id):

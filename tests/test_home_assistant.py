@@ -1,7 +1,64 @@
+import json
+
 import httpx
 import pytest
 
+from src.tools import ToolRegistry
 from src.tools.home_assistant import HomeAssistantClient
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("status_code", "expected"),
+    [
+        (200, {"status": "running"}),
+        (401, {"status": "authentication_failed", "http_status": 401}),
+        (403, {"status": "authentication_failed", "http_status": 403}),
+        (503, {"status": "http_error", "http_status": 503}),
+    ],
+)
+async def test_status_tool_checks_configured_api(
+    status_code: int,
+    expected: dict[str, str | int],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "GET"
+        assert request.url == "http://ha.local/api/"
+        assert request.headers["Authorization"] == "Bearer test-token"
+        return httpx.Response(status_code, text="private-response-details")
+
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(handler),
+        base_url="http://ha.local",
+        headers={"Authorization": "Bearer test-token"},
+    ) as http:
+        registry = ToolRegistry(HomeAssistantClient("http://ha.local", "unused", http))
+        result = await registry.execute("get_status", "{}")
+
+    assert json.loads(result) == expected
+    assert "private-response-details" not in caplog.text
+    if status_code != 200:
+        assert caplog.records
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("error_class", [httpx.ConnectError, httpx.ReadTimeout])
+async def test_status_tool_reports_unreachable_without_claiming_stopped(
+    error_class: type[httpx.RequestError],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise error_class("private-connection-details", request=request)
+
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(handler), base_url="http://ha.local"
+    ) as http:
+        client = HomeAssistantClient("http://ha.local", "unused", http)
+        assert await client.get_status() == {"status": "unreachable"}
+
+    assert caplog.records
+    assert "private-connection-details" not in caplog.text
 
 
 @pytest.mark.asyncio
