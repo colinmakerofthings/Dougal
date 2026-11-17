@@ -4,25 +4,30 @@ import logging
 import time
 from contextlib import asynccontextmanager
 from collections.abc import AsyncIterator
+from html import escape
+from pathlib import Path
 
 import httpx
 from fastapi import FastAPI, Request
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse
 from openai import AsyncOpenAI
 
 from src.agent import DougalAgent
 from src.config import Settings
+from src.history import MessageHistory
 from src.telegram_bot import build_telegram_application
 from src.tools import ToolRegistry
 from src.tools.home_assistant import HomeAssistantClient
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+LANDING_PAGE = Path(__file__).with_name("landing.html").read_text(encoding="utf-8")
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     configured = settings or Settings()
     started_at = time.monotonic()
+    history = MessageHistory()
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -41,7 +46,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             configured.openai_model,
             ToolRegistry(ha_client),
         )
-        telegram = build_telegram_application(configured, agent)
+        telegram = build_telegram_application(configured, agent, history=history)
         telegram_initialized = False
         try:
             await telegram.initialize()
@@ -64,11 +69,37 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app = FastAPI(title="Dougal", version="0.1.0", lifespan=lifespan)
     app.state.http_requests = 0
+    app.state.message_history = history
 
     @app.middleware("http")
     async def count_requests(request: Request, call_next):
         app.state.http_requests += 1
         return await call_next(request)
+
+    @app.get("/", response_class=HTMLResponse)
+    async def landing() -> HTMLResponse:
+        uptime_seconds = max(0, int(time.monotonic() - started_at))
+        days, remainder = divmod(uptime_seconds, 86400)
+        hours, remainder = divmod(remainder, 3600)
+        minutes, seconds = divmod(remainder, 60)
+        uptime = f"{days}d {hours}h {minutes}m {seconds}s"
+        exchanges = "".join(
+            '<article class="exchange">'
+            '<h3>Exchange <time datetime="'
+            f'{exchange.recorded_at.isoformat()}">'
+            f'{exchange.recorded_at.strftime("%d %b %Y, %H:%M:%S UTC")}'
+            "</time></h3>"
+            '<p class="speaker">User</p>'
+            f'<p class="message">{escape(exchange.user_message)}</p>'
+            '<p class="speaker">Dougal</p>'
+            f'<p class="message reply">{escape(exchange.reply)}</p>'
+            "</article>"
+            for exchange in reversed(history.exchanges)
+        ) or '<p class="muted">No messages yet. Send Dougal a private text message in Telegram.</p>'
+        return HTMLResponse(
+            LANDING_PAGE.replace("__UPTIME__", uptime).replace("__HISTORY__", exchanges),
+            headers={"Cache-Control": "no-store"},
+        )
 
     @app.get("/health")
     async def health() -> dict[str, str]:
