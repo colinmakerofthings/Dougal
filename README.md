@@ -79,10 +79,15 @@ credentials in Portainer, not in the Git repository.
   exchanges across all allowlisted users, newest first. Refresh for updates.
   History is held only in memory per service instance and cleared on restart;
   it does not change the AI's conversation context or import earlier Telegram
-  messages. Names and Telegram IDs are not stored in history or displayed.
+  messages. Each exchange shows the sender's Telegram display name (first
+  name and last name, when present) at the time of the exchange and a
+  "via Telegram" source badge; no extra
+  configuration is needed. Display names do not affect the numeric user-ID
+  allowlist. Numeric Telegram IDs are not stored in history or displayed.
   The page does not expose configuration or check external services.
   **There is no login: anyone who can reach the page can read the message
-  contents.** Keep it on your trusted network and do not expose it publicly.
+  contents and display names.** Keep it on your trusted network and do not
+  expose it publicly.
 - `http://localhost:8000/health` reports service health.
 - `http://localhost:8000/metrics` exposes basic Prometheus text-format request
   and uptime metrics.

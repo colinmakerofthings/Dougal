@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock
 import httpx
 import pytest
 from openai import RateLimitError
-from telegram import Update
+from telegram import Update, User
 from telegram.constants import ChatType
 
 from src.agent import DougalAgent
@@ -53,7 +53,9 @@ async def test_provider_limits_get_safe_specific_replies(
     history = MessageHistory()
     application = build_telegram_application(settings, agent, history=history)
     update = MagicMock(spec=Update)
-    update.effective_user.id = 123
+    update.effective_user = User(
+        id=123, first_name="Colin", last_name="Brown", is_bot=False
+    )
     update.effective_chat.type = ChatType.PRIVATE
     update.effective_message.text = "Hello"
     update.effective_message.reply_text = AsyncMock()
@@ -75,6 +77,7 @@ async def test_provider_limits_get_safe_specific_replies(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("last_name", [None, "Brown"])
 @pytest.mark.parametrize(
     ("user_id", "chat_type", "should_record"),
     [
@@ -84,7 +87,7 @@ async def test_provider_limits_get_safe_specific_replies(
     ],
 )
 async def test_only_authorized_private_exchanges_are_recorded(
-    user_id: int, chat_type: str, should_record: bool
+    user_id: int, chat_type: str, should_record: bool, last_name: str | None
 ) -> None:
     settings = Settings(
         telegram_bot_token="123456:test-token",
@@ -99,7 +102,9 @@ async def test_only_authorized_private_exchanges_are_recorded(
     agent.respond = AsyncMock(return_value=answer)
     application = build_telegram_application(settings, agent, history=history)
     update = MagicMock(spec=Update)
-    update.effective_user.id = user_id
+    update.effective_user = User(
+        id=user_id, first_name="Colin", last_name=last_name, is_bot=False
+    )
     update.effective_chat.type = chat_type
     update.effective_message.text = "Hello"
     update.effective_message.reply_text = AsyncMock()
@@ -110,6 +115,9 @@ async def test_only_authorized_private_exchanges_are_recorded(
         assert len(history.exchanges) == 1
         assert history.exchanges[0].user_message == "Hello"
         assert history.exchanges[0].reply == answer
+        assert history.exchanges[0].user_name == (
+            "Colin Brown" if last_name else "Colin"
+        )
         assert update.effective_message.reply_text.await_count == 2
         assert "".join(
             call.args[0] for call in update.effective_message.reply_text.await_args_list

@@ -88,7 +88,9 @@ async def test_history_keeps_latest_100_exchanges_and_resets_per_app(
     history = app.state.message_history
     history.add("discarded-message", "discarded-reply")
     for index in range(1, 101):
-        history.add(f"user-message-{index}", f"bot-reply-{index}")
+        history.add(
+            f"user-message-{index}", f"bot-reply-{index}", user_name="Colin Brown"
+        )
 
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://test"
@@ -96,20 +98,23 @@ async def test_history_keeps_latest_100_exchanges_and_resets_per_app(
         response = await client.get("/")
 
     assert response.text.count('<article class="exchange">') == 100
+    assert response.text.count('<span class="source">via Telegram</span>') == 100
     assert "discarded-message" not in response.text
     assert "discarded-reply" not in response.text
     assert response.text.index(">user-message-100<") < response.text.index(
         ">user-message-1<"
     )
     assert "bot-reply-100" in response.text
+    assert '<p class="speaker">Colin Brown</p>' in response.text
     assert len(create_app(settings).state.message_history.exchanges) == 0
 
 
 @pytest.mark.asyncio
-async def test_history_escapes_user_and_assistant_html(app: FastAPI) -> None:
+async def test_history_escapes_name_user_and_assistant_html(app: FastAPI) -> None:
     app.state.message_history.add(
         '<script>alert("user")</script>\nSecond line',
         '<img src=x onerror="alert(1)"> & response',
+        user_name='<b>Colin & "Brown"</b>',
     )
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://test"
@@ -118,6 +123,10 @@ async def test_history_escapes_user_and_assistant_html(app: FastAPI) -> None:
 
     assert '<script>' not in response.text
     assert '<img' not in response.text
+    assert (
+        '<p class="speaker">&lt;b&gt;Colin &amp; &quot;Brown&quot;&lt;/b&gt;</p>'
+        in response.text
+    )
     assert "&lt;script&gt;alert(&quot;user&quot;)&lt;/script&gt;\nSecond line" in response.text
     assert "&lt;img src=x onerror=&quot;alert(1)&quot;&gt; &amp; response" in response.text
     assert "UTC</time>" in response.text
