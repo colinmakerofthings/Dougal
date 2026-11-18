@@ -1,10 +1,12 @@
 import json
+from unittest.mock import AsyncMock, MagicMock
 
 import httpx
 import pytest
 from openai import AsyncOpenAI
 
 from src.agent import DougalAgent
+from src.entity_responses import EntityResponse
 from src.tools import ToolRegistry
 from src.tools.home_assistant import HomeAssistantClient
 
@@ -53,6 +55,15 @@ from src.tools.home_assistant import HomeAssistantClient
             {"message": "private-response-details"},
             {"error": "authentication_failed", "http_status": 403},
             "Home Assistant denied access, so I couldn't check your lights.",
+        ),
+        (
+            "list_entities",
+            '{"domain":"light","display":true}',
+            "List my lights",
+            403,
+            {"message": "private-response-details"},
+            {"error": "authentication_failed", "http_status": 403},
+            "Home Assistant denied access, so I couldn't list your lights.",
         ),
     ],
 )
@@ -129,3 +140,71 @@ async def test_tool_result_is_returned_to_model_before_reply(
 
     assert reply == answer
     assert api_checks == ["/api/" if tool_name == "get_status" else "/api/states"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("empty", [False, True])
+async def test_displayed_lists_use_tool_data_without_model_rewriting(empty: bool) -> None:
+    entities = [] if empty else [
+        {"entity_id": "light.kitchen", "name": "Kitchen", "state": "on"}
+    ]
+    home_assistant = MagicMock(spec=HomeAssistantClient)
+    home_assistant.list_entities = AsyncMock(return_value=entities)
+    requests = []
+
+    def ai_handler(request: httpx.Request) -> httpx.Response:
+        requests.append(json.loads(request.content))
+        return httpx.Response(
+            200,
+            json={
+                "id": "test-completion",
+                "object": "chat.completion",
+                "created": 0,
+                "model": "test-model",
+                "choices": [{
+                    "index": 0,
+                    "finish_reason": "tool_calls",
+                    "message": {
+                        "role": "assistant",
+                        "content": "This model-written list must not be used.",
+                        "tool_calls": [{
+                            "id": "list",
+                            "type": "function",
+                            "function": {
+                                "name": "list_entities",
+                                "arguments": json.dumps({
+                                    "domain": "light",
+                                    "area": "Kitchen",
+                                    "display": True,
+                                    "display_state": "on",
+                                    "show_entity_ids": True,
+                                    "include_indicators": True,
+                                }),
+                            },
+                        }],
+                    },
+                }],
+            },
+        )
+
+    async with AsyncOpenAI(
+        api_key="test-key",
+        http_client=httpx.AsyncClient(transport=httpx.MockTransport(ai_handler)),
+    ) as ai:
+        response = await DougalAgent(ai, "test-model", ToolRegistry(home_assistant)).respond(
+            "List the on kitchen lights, including indicators, with IDs"
+        )
+
+    assert isinstance(response, EntityResponse)
+    assert response.text == ""
+    assert len(response.lists) == 1
+    report = response.lists[0]
+    assert report.entities == entities
+    assert report.domain == "light"
+    assert report.area == "Kitchen"
+    assert report.state == "on"
+    assert report.show_entity_ids
+    assert len(requests) == 1
+    home_assistant.list_entities.assert_awaited_once_with(
+        "light", area="Kitchen", include_indicators=True
+    )

@@ -183,6 +183,32 @@ async def test_list_entities_rejects_invalid_domain_without_request() -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
+    "options",
+    [
+        {"display": "true"},
+        {"show_entity_ids": 1},
+        {"display_state": False},
+        {"display_state": " "},
+    ],
+)
+async def test_list_presentation_rejects_invalid_options_without_request(
+    options: dict[str, object],
+) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        pytest.fail("Invalid presentation options must not query Home Assistant")
+
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(handler), base_url="http://ha.local"
+    ) as http:
+        registry = ToolRegistry(HomeAssistantClient("http://ha.local", "unused", http))
+        with pytest.raises(ValueError):
+            await registry.execute(
+                "list_entities", json.dumps({"domain": "light", **options})
+            )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
     ("tool", "arguments", "status_code", "error"),
     [
         ("get_state", '{"entity_id":"light.missing"}', 404, "not_found"),

@@ -96,6 +96,27 @@ class ToolRegistry:
                                     "Omit for a whole-house query."
                                 ),
                             },
+                            "display": {
+                                "type": "boolean",
+                                "description": (
+                                    "Display a formatted entity list directly to the user. "
+                                    "Use for list/summary answers, not discovery before actions."
+                                ),
+                            },
+                            "display_state": {
+                                "type": ["string", "null"],
+                                "description": (
+                                    "Only display this exact state (e.g. on); omit to group "
+                                    "all states. Does not filter discovery data."
+                                ),
+                            },
+                            "show_entity_ids": {
+                                "type": "boolean",
+                                "description": (
+                                    "Show IDs in the formatted list only when explicitly "
+                                    "requested for details/debugging. Defaults to false."
+                                ),
+                            },
                         },
                         "required": ["domain"],
                         "additionalProperties": False,
@@ -163,6 +184,12 @@ class ToolRegistry:
         return await self._home_assistant.get_state(arguments["entity_id"])
 
     async def _list_entities(self, arguments: dict[str, Any]) -> Any:
+        for key in ("display", "show_entity_ids"):
+            if key in arguments and not isinstance(arguments[key], bool):
+                raise ValueError(f"{key} must be a boolean")
+        state = arguments.get("display_state")
+        if state is not None and (not isinstance(state, str) or not state.strip()):
+            raise ValueError("display_state must be a non-empty string")
         return await self._home_assistant.list_entities(
             arguments["domain"],
             include_indicators=arguments.get("include_indicators", False),

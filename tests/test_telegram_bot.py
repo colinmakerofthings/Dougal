@@ -6,10 +6,11 @@ import httpx
 import pytest
 from openai import RateLimitError
 from telegram import Update, User
-from telegram.constants import ChatType
+from telegram.constants import ChatType, ParseMode
 
 from src.agent import DougalAgent
 from src.config import Settings
+from src.entity_responses import EntityList, EntityResponse
 from src.history import MessageHistory
 from src.telegram_bot import build_telegram_application
 
@@ -173,3 +174,40 @@ async def test_unexpected_error_does_not_claim_home_assistant_is_unreachable(
     assert "private-error-details" not in caplog.text
     assert caplog.records
     assert all(record.exc_info is None for record in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_entity_replies_use_html_but_prose_and_history_remain_plain() -> None:
+    settings = Settings(
+        telegram_bot_token="123456:test-token",
+        allowed_telegram_user_ids={123},
+        openai_api_key="test-key",
+        home_assistant_url="http://ha.local",
+        home_assistant_token="test-token",
+    )
+    agent = MagicMock(spec=DougalAgent)
+    agent.respond = AsyncMock(return_value=EntityResponse(
+        lists=[EntityList("light", [
+            {"entity_id": "light.desk", "name": "<Desk & lamp>", "state": "on"},
+        ])],
+        text="An unrelated result: <not HTML>.",
+    ))
+    history = MessageHistory()
+    application = build_telegram_application(settings, agent, history=history)
+    update = MagicMock(spec=Update)
+    update.effective_user = User(id=123, first_name="Colin", is_bot=False)
+    update.effective_chat.type = ChatType.PRIVATE
+    update.effective_message.text = "List my lights"
+    update.effective_message.reply_text = AsyncMock()
+
+    await application.handlers[0][0].callback(update, MagicMock())
+
+    prose, entity_list = update.effective_message.reply_text.await_args_list
+    assert prose.args == ("An unrelated result: <not HTML>.",)
+    assert prose.kwargs == {}
+    assert "&lt;Desk &amp; lamp&gt;" in entity_list.args[0]
+    assert entity_list.kwargs == {"parse_mode": ParseMode.HTML}
+    [exchange] = history.exchanges
+    assert "<Desk & lamp>" in exchange.reply
+    assert "<b>" not in exchange.reply
+    assert "light.desk" not in exchange.reply

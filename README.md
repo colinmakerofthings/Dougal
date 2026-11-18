@@ -50,6 +50,26 @@ available for direct entity queries and troubleshooting and are never treated
 as off. Tool failures distinguish access denied, missing entities or endpoints,
 HTTP errors, and connection failures.
 
+### Readable entity lists
+
+Ask "List all my lights" (or switches, sensors, or another entity domain) for
+a compact Telegram list with friendly names, state indicators, and a count in
+each state group. ON and OFF appear first; other states, including unknown and
+unavailable, remain separate and are never treated as off. Questions such as
+"Which lights are on?" show only the requested state. Empty results distinguish
+no matching entities from no entities reporting the requested state.
+
+Entity IDs are hidden by default. Ask "List my lights with entity IDs" or
+"Show a detailed/debug list of my kitchen switches" to include them. If an
+entity has no friendly name, a readable name is derived from its object ID
+rather than showing the raw ID.
+
+Lists use Telegram-supported HTML headings and wrapping rows, not Markdown
+tables or fixed-width columns, so long names can wrap on mobile. Large lists
+are split into independently formatted messages with repeated domain/room and
+state headings. Repeated state counts describe the entire group, not just
+that message. Existing room and indicator filters still apply.
+
 ### Room-specific queries
 
 Ask "Are the kitchen lights on?" to restrict discovery to the Kitchen Area
