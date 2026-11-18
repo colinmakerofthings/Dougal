@@ -7,7 +7,11 @@ from typing import Any
 
 import httpx
 
-from src.tools.home_assistant import HomeAssistantClient, IndicatorLabelLookupError
+from src.tools.home_assistant import (
+    AreaLookupError,
+    HomeAssistantClient,
+    IndicatorLabelLookupError,
+)
 
 ToolHandler = Callable[[dict[str, Any]], Awaitable[Any]]
 logger = logging.getLogger(__name__)
@@ -68,7 +72,9 @@ class ToolRegistry:
                         "entity IDs. Includes unavailable and unknown entities. "
                         "General light discovery excludes the configured indicator "
                         "label. Set include_indicators true only for explicit "
-                        "questions about indicators, backlights, or all light entities."
+                        "questions about indicators, backlights, or all light entities. "
+                        "When a room is mentioned, supply area to filter using Home "
+                        "Assistant's actual area assignments, not entity names."
                     ),
                     "parameters": {
                         "type": "object",
@@ -81,6 +87,34 @@ class ToolRegistry:
                                 "type": "boolean",
                                 "description": (
                                     "Include indicator-labelled lights. Defaults to false."
+                                ),
+                            },
+                            "area": {
+                                "type": ["string", "null"],
+                                "description": (
+                                    "HA Area name, ID, or alias, such as Kitchen. "
+                                    "Omit for a whole-house query."
+                                ),
+                            },
+                            "display": {
+                                "type": "boolean",
+                                "description": (
+                                    "Display a formatted entity list directly to the user. "
+                                    "Use for list/summary answers, not discovery before actions."
+                                ),
+                            },
+                            "display_state": {
+                                "type": ["string", "null"],
+                                "description": (
+                                    "Only display this exact state (e.g. on); omit to group "
+                                    "all states. Does not filter discovery data."
+                                ),
+                            },
+                            "show_entity_ids": {
+                                "type": "boolean",
+                                "description": (
+                                    "Show IDs in the formatted list only when explicitly "
+                                    "requested for details/debugging. Defaults to false."
                                 ),
                             },
                         },
@@ -125,6 +159,9 @@ class ToolRegistry:
         except IndicatorLabelLookupError:
             logger.warning("Home Assistant indicator label lookup failed")
             result = {"error": "indicator_label_lookup_failed"}
+        except AreaLookupError as error:
+            logger.warning("Home Assistant area lookup failed (%s)", error.code)
+            result = {"error": error.code}
         except httpx.HTTPStatusError as error:
             status_code = error.response.status_code
             logger.warning("Home Assistant tool %s returned HTTP %s", name, status_code)
@@ -147,9 +184,16 @@ class ToolRegistry:
         return await self._home_assistant.get_state(arguments["entity_id"])
 
     async def _list_entities(self, arguments: dict[str, Any]) -> Any:
+        for key in ("display", "show_entity_ids"):
+            if key in arguments and not isinstance(arguments[key], bool):
+                raise ValueError(f"{key} must be a boolean")
+        state = arguments.get("display_state")
+        if state is not None and (not isinstance(state, str) or not state.strip()):
+            raise ValueError("display_state must be a non-empty string")
         return await self._home_assistant.list_entities(
             arguments["domain"],
             include_indicators=arguments.get("include_indicators", False),
+            area=arguments.get("area"),
         )
 
     async def _call_service(self, arguments: dict[str, Any]) -> Any:

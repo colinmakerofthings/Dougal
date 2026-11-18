@@ -4,15 +4,20 @@ import logging
 
 from openai import RateLimitError
 from telegram import Update
-from telegram.constants import ChatType
+from telegram.constants import ChatType, ParseMode
 from telegram.ext import Application, ContextTypes, MessageHandler, filters
 
 from src.agent import DougalAgent
 from src.config import Settings
+from src.entity_responses import (
+    EntityResponse,
+    plain_entity_text,
+    render_entity_list,
+    split_text,
+)
 from src.history import MessageHistory
 
 logger = logging.getLogger(__name__)
-TELEGRAM_MESSAGE_LIMIT = 4096
 
 
 def build_telegram_application(
@@ -72,10 +77,21 @@ def build_telegram_application(
                 "Ah, something went wrong while handling that. "
                 "I couldn't complete the request just now; please try again."
             )
-        for start in range(0, len(answer), TELEGRAM_MESSAGE_LIMIT):
-            await message.reply_text(answer[start : start + TELEGRAM_MESSAGE_LIMIT])
+        if isinstance(answer, EntityResponse):
+            history_parts = [answer.text] if answer.text else []
+            for part in split_text(answer.text):
+                await message.reply_text(part)
+            for report in answer.lists:
+                for part in render_entity_list(report):
+                    await message.reply_text(part, parse_mode=ParseMode.HTML)
+                    history_parts.append(plain_entity_text(part))
+            history_answer = "\n\n".join(history_parts)
+        else:
+            for part in split_text(answer):
+                await message.reply_text(part)
+            history_answer = answer
         if history is not None:
-            history.add(message.text, answer, user_name=user.full_name)
+            history.add(message.text, history_answer, user_name=user.full_name)
 
     application.add_handler(
         MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message)

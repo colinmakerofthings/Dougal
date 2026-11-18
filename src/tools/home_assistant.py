@@ -3,7 +3,7 @@
 import asyncio
 import logging
 import re
-from typing import Any, TypedDict
+from typing import Any, Literal, NotRequired, TypedDict
 from urllib.parse import quote
 
 import httpx
@@ -26,12 +26,45 @@ class _RegistryEntity(TypedDict):
     labels: list[str]
 
 
+class _AreaEntry(TypedDict):
+    area_id: str
+    name: str
+    aliases: NotRequired[list[str]]
+
+
+class _AreaEntity(TypedDict):
+    entity_id: str
+    area_id: str | None
+    device_id: str | None
+
+
+class _DeviceEntry(TypedDict):
+    id: str
+    area_id: str | None
+
+
 _LABEL_ENTRIES = TypeAdapter(list[_LabelEntry])
 _REGISTRY_ENTITIES = TypeAdapter(list[_RegistryEntity])
+_AREA_ENTRIES = TypeAdapter(list[_AreaEntry])
+_AREA_ENTITIES = TypeAdapter(list[_AreaEntity])
+_DEVICE_ENTRIES = TypeAdapter(list[_DeviceEntry])
+
+
+class _RegistryLookupError(Exception):
+    """A read-only registry request failed."""
 
 
 class IndicatorLabelLookupError(Exception):
     """The configured indicator label could not be resolved safely."""
+
+
+class AreaLookupError(Exception):
+    def __init__(
+        self,
+        code: Literal["area_not_found", "area_ambiguous", "area_lookup_failed"],
+    ) -> None:
+        super().__init__(code)
+        self.code = code
 
 
 class HomeAssistantClient:
@@ -75,12 +108,19 @@ class HomeAssistantClient:
         return response.json()
 
     async def list_entities(
-        self, domain: str, *, include_indicators: bool = False
+        self,
+        domain: str,
+        *,
+        include_indicators: bool = False,
+        area: str | None = None,
     ) -> list[dict[str, Any]]:
         if not _SERVICE_PART.fullmatch(domain):
             raise ValueError("Invalid Home Assistant domain")
         if not isinstance(include_indicators, bool):
             raise ValueError("include_indicators must be a boolean")
+        if area is not None and (not isinstance(area, str) or not area.strip()):
+            raise ValueError("area must be a non-empty string")
+        included = await self._area_entity_ids(area) if area is not None else None
         excluded: set[str] = set()
         if domain == "light" and self._indicator_label and not include_indicators:
             excluded = await self._indicator_entity_ids()
@@ -95,9 +135,81 @@ class HomeAssistantClient:
             for entity in response.json()
             if entity["entity_id"].startswith(f"{domain}.")
             and entity["entity_id"] not in excluded
+            and (included is None or entity["entity_id"] in included)
         ]
 
     async def _indicator_entity_ids(self) -> set[str]:
+        try:
+            data = await self._registry_data(
+                ("config/label_registry/list", "config/entity_registry/list")
+            )
+            labels = _LABEL_ENTRIES.validate_python(data["config/label_registry/list"])
+            label_id = next(
+                (
+                    label["label_id"]
+                    for label in labels
+                    if label["name"] == self._indicator_label
+                ),
+                None,
+            )
+            if label_id is None:
+                raise ValueError("Configured indicator label was not found")
+            entities = _REGISTRY_ENTITIES.validate_python(
+                data["config/entity_registry/list"]
+            )
+            return {
+                entity["entity_id"]
+                for entity in entities
+                if label_id in entity["labels"]
+            }
+        except (_RegistryLookupError, ValueError):
+            raise IndicatorLabelLookupError(
+                "Unable to resolve the configured indicator label"
+            ) from None
+
+    async def _area_entity_ids(self, area: str) -> set[str]:
+        try:
+            data = await self._registry_data(
+                (
+                    "config/area_registry/list",
+                    "config/device_registry/list",
+                    "config/entity_registry/list",
+                )
+            )
+            areas = _AREA_ENTRIES.validate_python(data["config/area_registry/list"])
+            query = area.strip().casefold()
+            matches = {
+                entry["area_id"]
+                for entry in areas
+                if any(
+                    value.casefold() == query
+                    for value in [
+                        entry["area_id"],
+                        entry["name"],
+                        *entry.get("aliases", []),
+                    ]
+                )
+            }
+            if not matches:
+                raise AreaLookupError("area_not_found")
+            if len(matches) > 1:
+                raise AreaLookupError("area_ambiguous")
+            area_id = next(iter(matches))
+            devices = _DEVICE_ENTRIES.validate_python(data["config/device_registry/list"])
+            entities = _AREA_ENTITIES.validate_python(data["config/entity_registry/list"])
+            device_areas = {device["id"]: device["area_id"] for device in devices}
+            included: set[str] = set()
+            for entity in entities:
+                effective_area = entity["area_id"]
+                if effective_area is None and entity["device_id"] is not None:
+                    effective_area = device_areas.get(entity["device_id"])
+                if effective_area == area_id:
+                    included.add(entity["entity_id"])
+            return included
+        except (_RegistryLookupError, ValueError):
+            raise AreaLookupError("area_lookup_failed") from None
+
+    async def _registry_data(self, commands: tuple[str, ...]) -> dict[str, object]:
         try:
             async with asyncio.timeout(10):
                 async with aconnect_ws(
@@ -121,37 +233,13 @@ class HomeAssistantClient:
                         or authenticated.get("type") != "auth_ok"
                     ):
                         raise ValueError("Home Assistant registry authentication failed")
-                    await websocket.send_json(
-                        {"id": 1, "type": "config/label_registry/list"}
-                    )
-                    labels = _LABEL_ENTRIES.validate_python(
-                        await self._registry_result(websocket, 1)
-                    )
-                    label_id = next(
-                        (
-                            label["label_id"]
-                            for label in labels
-                            if label["name"] == self._indicator_label
-                        ),
-                        None,
-                    )
-                    if label_id is None:
-                        raise ValueError("Configured indicator label was not found")
-                    await websocket.send_json(
-                        {"id": 2, "type": "config/entity_registry/list"}
-                    )
-                    entities = _REGISTRY_ENTITIES.validate_python(
-                        await self._registry_result(websocket, 2)
-                    )
-                    return {
-                        entity["entity_id"]
-                        for entity in entities
-                        if label_id in entity["labels"]
-                    }
+                    data: dict[str, object] = {}
+                    for command_id, command in enumerate(commands, 1):
+                        await websocket.send_json({"id": command_id, "type": command})
+                        data[command] = await self._registry_result(websocket, command_id)
+                    return data
         except* (HTTPXWSException, httpx.HTTPError, TimeoutError, ValueError):
-            raise IndicatorLabelLookupError(
-                "Unable to resolve the configured indicator label"
-            ) from None
+            raise _RegistryLookupError("Home Assistant registry lookup failed") from None
 
     @staticmethod
     async def _registry_result(
