@@ -67,6 +67,21 @@ async def test_landing_page_is_read_only_overview_with_uptime(
 
 
 @pytest.mark.asyncio
+async def test_landing_page_displays_the_supplied_picture(app: FastAPI) -> None:
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        page = await client.get("/")
+        picture = await client.get("/dougal.jpeg")
+
+    assert 'src="/dougal.jpeg"' in page.text
+    assert 'alt="Dougal smiling"' in page.text
+    assert picture.status_code == 200
+    assert picture.headers["content-type"] == "image/jpeg"
+    assert picture.content.startswith(b"\xff\xd8\xff")
+
+
+@pytest.mark.asyncio
 async def test_uptime_endpoint_reports_current_uncached_service_uptime(
     app: FastAPI, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -182,7 +197,7 @@ async def test_history_escapes_name_user_and_assistant_html(app: FastAPI) -> Non
         response = await client.get("/")
 
     assert '<script>alert("user")</script>' not in response.text
-    assert '<img' not in response.text
+    assert '<img src=x onerror="alert(1)">' not in response.text
     assert (
         '<p class="speaker">&lt;b&gt;Colin &amp; &quot;Brown&quot;&lt;/b&gt;</p>'
         in response.text

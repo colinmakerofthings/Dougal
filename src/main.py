@@ -9,7 +9,7 @@ from pathlib import Path
 
 import httpx
 from fastapi import FastAPI, Request, Response
-from fastapi.responses import HTMLResponse, PlainTextResponse
+from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse
 from openai import AsyncOpenAI
 
 from src.agent import DougalAgent
@@ -110,6 +110,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get("/health")
     async def health() -> dict[str, str]:
         return {"status": "ok"}
+
+    @app.get("/dougal.jpeg", include_in_schema=False)
+    async def dougal_picture() -> FileResponse:
+        return FileResponse(Path(__file__).with_name("dougal.jpeg"), media_type="image/jpeg")
 
     @app.get("/api/uptime")
     async def uptime(response: Response) -> dict[str, int]:
