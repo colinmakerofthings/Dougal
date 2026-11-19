@@ -72,6 +72,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.http_requests = 0
     app.state.message_history = history
 
+    def uptime_seconds() -> int:
+        return max(0, int(time.monotonic() - started_at))
+
     @app.middleware("http")
     async def count_requests(request: Request, call_next):
         app.state.http_requests += 1
@@ -79,8 +82,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/", response_class=HTMLResponse)
     async def landing() -> HTMLResponse:
-        uptime_seconds = max(0, int(time.monotonic() - started_at))
-        days, remainder = divmod(uptime_seconds, 86400)
+        elapsed = uptime_seconds()
+        days, remainder = divmod(elapsed, 86400)
         hours, remainder = divmod(remainder, 3600)
         minutes, seconds = divmod(remainder, 60)
         uptime = f"{days}d {hours}h {minutes}m {seconds}s"
@@ -98,13 +101,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             for exchange in reversed(history.exchanges)
         ) or '<p class="muted">No messages yet. Send Dougal a private text message in Telegram.</p>'
         return HTMLResponse(
-            LANDING_PAGE.replace("__UPTIME__", uptime).replace("__HISTORY__", exchanges),
+            LANDING_PAGE.replace("__UPTIME_SECONDS__", str(elapsed))
+            .replace("__UPTIME__", uptime)
+            .replace("__HISTORY__", exchanges),
             headers={"Cache-Control": "no-store"},
         )
 
     @app.get("/health")
     async def health() -> dict[str, str]:
         return {"status": "ok"}
+
+    @app.get("/api/uptime")
+    async def uptime(response: Response) -> dict[str, int]:
+        response.headers["Cache-Control"] = "no-store"
+        return {"uptime_seconds": uptime_seconds()}
 
     @app.get("/api/status")
     async def status(response: Response) -> dict[str, str | None]:

@@ -60,8 +60,9 @@
       <section class="card" aria-labelledby="service">
         <h2 id="service">Keeping an eye on things</h2>
         <p class="muted">Service uptime</p>
-        <p class="uptime">__UPTIME__</p>
-        <p class="muted">Since this service instance started. Refresh for an updated snapshot.</p>
+        <p class="uptime" id="uptime" data-seconds="__UPTIME_SECONDS__">__UPTIME__</p>
+        <p class="muted">Since this service instance started. Updates automatically.</p>
+        <noscript><p class="muted">Enable JavaScript or refresh the page to update uptime.</p></noscript>
         <nav aria-label="Service endpoints">
           <a href="/health">Health JSON</a>
           <a href="/metrics">Metrics</a>
@@ -91,5 +92,49 @@
     <footer class="muted">This page confirms the web service is responding, not the health
       of Telegram, the AI provider, or Home Assistant. Keep it on your trusted network.</footer>
   </main>
+  <script>
+    const uptime = document.getElementById("uptime");
+    let seconds = Number(uptime.dataset.seconds);
+    let lastSync = performance.now();
+    let available = true;
+
+    function renderUptime() {
+      if (!available) return;
+      const total = seconds + Math.floor((performance.now() - lastSync) / 1000);
+      const days = Math.floor(total / 86400);
+      const hours = Math.floor(total % 86400 / 3600);
+      const minutes = Math.floor(total % 3600 / 60);
+      uptime.textContent = `${days}d ${hours}h ${minutes}m ${total % 60}s`;
+    }
+
+    async function syncUptime() {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 5000);
+      try {
+        const response = await fetch("/api/uptime", {
+          cache: "no-store",
+          signal: controller.signal,
+        });
+        if (!response.ok) throw new Error("Uptime request failed");
+        const data = await response.json();
+        if (!Number.isSafeInteger(data.uptime_seconds) || data.uptime_seconds < 0) {
+          throw new Error("Invalid uptime response");
+        }
+        seconds = data.uptime_seconds;
+        lastSync = performance.now();
+        available = true;
+        renderUptime();
+      } catch {
+        available = false;
+        uptime.textContent = "Uptime unavailable";
+      } finally {
+        clearTimeout(timeout);
+        setTimeout(syncUptime, 15000);
+      }
+    }
+
+    setInterval(renderUptime, 1000);
+    setTimeout(syncUptime, 15000);
+  </script>
 </body>
 </html>

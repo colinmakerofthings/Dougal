@@ -54,14 +54,35 @@ async def test_landing_page_is_read_only_overview_with_uptime(
     assert response.headers["content-type"].startswith("text/html")
     assert response.headers["cache-control"] == "no-store"
     assert expected in response.text
+    assert f'data-seconds="{elapsed}"' in response.text
     assert 'href="/health"' in response.text
     assert 'href="/metrics"' in response.text
     assert "__UPTIME__" not in response.text
+    assert "__UPTIME_SECONDS__" not in response.text
     assert "__HISTORY__" not in response.text
     assert "No messages yet." in response.text
     assert "private-" not in response.text
     assert "987654321" not in response.text
     assert app.state.http_requests == 1
+
+
+@pytest.mark.asyncio
+async def test_uptime_endpoint_reports_current_uncached_service_uptime(
+    app: FastAPI, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        first = await client.get("/api/uptime")
+        monkeypatch.setattr(
+            "src.main.time", SimpleNamespace(monotonic=lambda: 90161.9)
+        )
+        second = await client.get("/api/uptime")
+
+    assert first.json() == {"uptime_seconds": 0}
+    assert second.json() == {"uptime_seconds": 90061}
+    assert first.headers["cache-control"] == "no-store"
+    assert second.headers["cache-control"] == "no-store"
 
 
 @pytest.mark.asyncio
@@ -160,7 +181,7 @@ async def test_history_escapes_name_user_and_assistant_html(app: FastAPI) -> Non
     ) as client:
         response = await client.get("/")
 
-    assert '<script>' not in response.text
+    assert '<script>alert("user")</script>' not in response.text
     assert '<img' not in response.text
     assert (
         '<p class="speaker">&lt;b&gt;Colin &amp; &quot;Brown&quot;&lt;/b&gt;</p>'
