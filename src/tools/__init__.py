@@ -106,8 +106,10 @@ class ToolRegistry:
                             "display_state": {
                                 "type": ["string", "null"],
                                 "description": (
-                                    "Only display this exact state (e.g. on); omit to group "
-                                    "all states. Does not filter discovery data."
+                                    "Only display this exact state. For example, use off "
+                                    "for 'which lights are off?' and on for 'which lights "
+                                    "are on?'; omit to group all states. Does not filter "
+                                    "discovery data."
                                 ),
                             },
                             "show_entity_ids": {
