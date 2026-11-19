@@ -71,6 +71,31 @@ def test_state_filter_and_optional_debug_ids(show_ids: bool) -> None:
     assert "switch.b" not in message
 
 
+def test_off_state_filter_excludes_on_and_unavailable_entities() -> None:
+    [message] = render_entity_list(
+        EntityList(
+            domain="light",
+            entities=[
+                {"entity_id": "light.on", "name": "On lamp", "state": "on"},
+                {"entity_id": "light.off", "name": "Off lamp", "state": "off"},
+                {
+                    "entity_id": "light.unavailable",
+                    "name": "Unavailable lamp",
+                    "state": "unavailable",
+                },
+            ],
+            state="off",
+        )
+    )
+
+    assert "OFF (1)" in message
+    assert "Off lamp" in message
+    assert "ON" not in message
+    assert "On lamp" not in message
+    assert "UNAVAILABLE" not in message
+    assert "Unavailable lamp" not in message
+
+
 @pytest.mark.parametrize(
     ("entities", "state", "expected"),
     [
