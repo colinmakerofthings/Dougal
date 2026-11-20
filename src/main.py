@@ -20,6 +20,7 @@ from src.tools import ToolRegistry
 from src.tools.home_assistant import HomeAssistantClient
 
 logging.basicConfig(level=logging.INFO)
+logging.getLogger("httpx").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 LANDING_PAGE = Path(__file__).with_name("landing.html").read_text(encoding="utf-8")
 
@@ -92,7 +93,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             '<h3>Exchange <time datetime="'
             f'{exchange.recorded_at.isoformat()}">'
             f'{exchange.recorded_at.strftime("%d %b %Y, %H:%M:%S UTC")}'
-            '</time> <span class="source">via Telegram</span></h3>'
+            '</time> <span class="source">via Telegram'
+            f'{" voice" if exchange.is_voice else ""}</span></h3>'
             f'<p class="speaker">{escape(exchange.user_name)}</p>'
             f'<p class="message">{escape(exchange.user_message)}</p>'
             '<p class="speaker">Dougal</p>'

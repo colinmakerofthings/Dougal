@@ -12,6 +12,30 @@ from src.tools.home_assistant import HomeAssistantClient
 
 
 @pytest.mark.asyncio
+async def test_voice_cannot_execute_an_action_even_if_model_calls_it() -> None:
+    home_assistant = MagicMock(spec=HomeAssistantClient)
+    home_assistant.call_service = AsyncMock()
+    tools = ToolRegistry(home_assistant)
+    client = MagicMock(spec=AsyncOpenAI)
+    completion = client.chat.completions.create = AsyncMock()
+    message = completion.return_value.choices = [MagicMock()]
+    tool_call = MagicMock()
+    tool_call.function.name = "call_service"
+    message[0].message.tool_calls = [tool_call]
+
+    reply = await DougalAgent(client, "test-model", tools).respond(
+        "Turn off the kitchen lights", read_only=True
+    )
+
+    definitions = completion.call_args.kwargs["tools"]
+    assert {tool["function"]["name"] for tool in definitions} == {
+        "get_status", "get_state", "list_entities"
+    }
+    assert isinstance(reply, str) and "Send a text message" in reply
+    home_assistant.call_service.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("tool_name", "arguments", "question", "ha_status", "ha_json", "expected", "answer"),
     [
