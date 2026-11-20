@@ -239,22 +239,32 @@ enable the entity-label filtering described above.
 - `http://localhost:8000/metrics` exposes basic Prometheus text-format request
   and uptime metrics.
 - `http://localhost:8000/api/status` returns the last accepted Telegram message
-  receipt time as JSON.
+  receipt time and text and voice counts from the retained history as JSON.
 
 ### Status API
 
 The read-only `GET /api/status` endpoint returns HTTP 200 with a JSON body:
 
 ```json
-{"last_message_received": "2026-11-17T16:40:00+00:00"}
+{
+  "last_message_received": "2026-11-17T16:40:00+00:00",
+  "text_messages": 12,
+  "voice_messages": 3
+}
 ```
 
-The value is an ISO 8601 UTC timestamp recorded when Dougal accepts an
+`last_message_received` is an ISO 8601 UTC timestamp recorded when Dougal accepts an
 allowlisted user's private text message or, when enabled, a voice note.
 It is recorded before transcription or waiting for the AI. Ignored messages
 and commands do not update it. It is `null` until
-the first accepted message after each restart. No message contents, names,
-user IDs, or credentials are returned.
+the first accepted message after each restart.
+
+`text_messages` and `voice_messages` count incoming Telegram messages and
+voice notes in the latest 100 completed exchanges retained in memory. They
+exclude messages not recorded in history, such as a voice note that could not
+be transcribed. These are not lifetime totals: counts can drop as older
+exchanges are evicted, and both start at zero after a restart. No message
+contents, names, user IDs, or credentials are returned.
 
 Responses include `Cache-Control: no-store`. The endpoint has no authentication;
 keep it on your trusted network.
