@@ -56,8 +56,9 @@ Ask "List all my lights" (or switches, sensors, or another entity domain) for
 a compact Telegram list with friendly names, state indicators, and a count in
 each state group. ON and OFF appear first; other states, including unknown and
 unavailable, remain separate and are never treated as off. Questions such as
-"Which lights are on?" show only the requested state. Empty results distinguish
-no matching entities from no entities reporting the requested state.
+"Which lights are on?" or "Which lights are unavailable?" show only the requested
+state. Empty results distinguish no matching entities from no entities reporting
+the requested state.
 
 Entity IDs are hidden by default. Ask "List my lights with entity IDs" or
 "Show a detailed/debug list of my kitchen switches" to include them. If an
