@@ -6,6 +6,7 @@ from datetime import timedelta
 
 import httpx
 from openai import RateLimitError
+from pydantic import SecretStr
 from telegram import Update, Voice
 from telegram.constants import ChatType, ParseMode
 from telegram.error import TelegramError
@@ -26,7 +27,11 @@ _MAX_VOICE_SECONDS = 30
 _MAX_VOICE_BYTES = 2 * 1024 * 1024
 
 
-async def _transcribe_voice(voice: Voice, url: str, model: str) -> str:
+async def _transcribe_voice(
+    voice: Voice, url: str, model: str, *, api_key: SecretStr | None = None,
+) -> str:
+    key = api_key.get_secret_value() if api_key is not None else ""
+    headers = {"Authorization": f"Bearer {key}"} if key else {}
     async with asyncio.timeout(30):
         telegram_file = await voice.get_file()
         if telegram_file.file_size is not None and telegram_file.file_size > _MAX_VOICE_BYTES:
@@ -37,6 +42,7 @@ async def _transcribe_voice(voice: Voice, url: str, model: str) -> str:
         async with httpx.AsyncClient(trust_env=False) as client:
             response = await client.post(
                 url,
+                headers=headers,
                 files={"file": ("voice.ogg", bytes(audio), "audio/ogg")},
                 data={"model": model, "response_format": "json"},
                 timeout=25,
@@ -95,7 +101,10 @@ def build_telegram_application(
                 history.record_received()
             try:
                 text = await _transcribe_voice(
-                    voice, str(transcription_url), settings.dougal_voice_transcription_model
+                    voice,
+                    str(transcription_url),
+                    settings.dougal_voice_transcription_model,
+                    api_key=settings.dougal_voice_transcription_api_key,
                 )
             except (TelegramError, httpx.HTTPError, TimeoutError, ValueError) as error:
                 logger.warning("Voice transcription failed (%s)", type(error).__name__)
