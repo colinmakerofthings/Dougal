@@ -18,22 +18,25 @@ from src.telegram_bot import build_telegram_application
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("enabled", "user_id", "chat_type", "duration", "size", "status", "reply"),
+    ("enabled", "user_id", "chat_type", "duration", "size", "status", "reply", "api_key"),
     [
-        (True, 123, ChatType.PRIVATE, 30, 20, 200, "The kitchen light is off."),
-        (True, 123, ChatType.PRIVATE, 30, 20, 503, "I couldn't transcribe"),
-        (True, 123, ChatType.PRIVATE, 31, 20, 200, "up to 30 seconds"),
-        (True, 123, ChatType.PRIVATE, 30, 2 * 1024 * 1024 + 1, 200, "2 MiB"),
-        (True, 999, ChatType.PRIVATE, 30, 20, 200, None),
-        (True, 123, ChatType.GROUP, 30, 20, 200, None),
-        (False, 123, ChatType.PRIVATE, 30, 20, 200, None),
+        (True, 123, ChatType.PRIVATE, 30, 20, 200, "The kitchen light is off.", ""),
+        (True, 123, ChatType.PRIVATE, 30, 20, 200, "The kitchen light is off.", "scribe-key"),
+        (True, 123, ChatType.PRIVATE, 30, 20, 401, "I couldn't transcribe", "rejected-key"),
+        (True, 123, ChatType.PRIVATE, 30, 20, 503, "I couldn't transcribe", ""),
+        (True, 123, ChatType.PRIVATE, 31, 20, 200, "up to 30 seconds", ""),
+        (True, 123, ChatType.PRIVATE, 30, 2 * 1024 * 1024 + 1, 200, "2 MiB", ""),
+        (True, 999, ChatType.PRIVATE, 30, 20, 200, None, ""),
+        (True, 123, ChatType.GROUP, 30, 20, 200, None, ""),
+        (False, 123, ChatType.PRIVATE, 30, 20, 200, None, ""),
     ],
 )
 async def test_voice_notes_use_local_transcription_and_read_only_agent(
     enabled: bool, user_id: int, chat_type: str, duration: int, size: int,
-    status: int, reply: str | None,
+    status: int, reply: str | None, api_key: str, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     url = "http://transcriber.test/v1/audio/transcriptions"
+    monkeypatch.setenv("DOUGAL_VOICE_TRANSCRIPTION_API_KEY", api_key)
     settings = Settings(
         telegram_bot_token="123456:test-token",
         allowed_telegram_user_ids={123},
@@ -61,7 +64,9 @@ async def test_voice_notes_use_local_transcription_and_read_only_agent(
         assert str(request.url) == url
         assert b"OggS test audio" in request.content
         assert b"whisper-1" in request.content
-        assert "authorization" not in request.headers
+        assert request.headers.get("authorization") == (
+            f"Bearer {api_key}" if api_key else None
+        )
         return httpx.Response(status, json={"text": "  Which lights are off?  "})
 
     async_client = httpx.AsyncClient

@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     dougal_indicator_label: str = ""
     dougal_voice_transcription_url: HttpUrl | None = None
     dougal_voice_transcription_model: str = "whisper-1"
+    dougal_voice_transcription_api_key: SecretStr | None = None
 
     @field_validator("dougal_voice_transcription_url", mode="before")
     @classmethod

@@ -134,11 +134,20 @@ transcription endpoint. Set the full URL in `.env` or your Portainer Stack:
 ```dotenv
 DOUGAL_VOICE_TRANSCRIPTION_URL=http://transcriber:8000/v1/audio/transcriptions
 DOUGAL_VOICE_TRANSCRIPTION_MODEL=whisper-1
+DOUGAL_VOICE_TRANSCRIPTION_API_KEY=
 ```
 
 Replace `transcriber` with a hostname or IP reachable from Dougal's container,
 and set the model to one your service supports. Dougal does not start a
-transcription service itself. Recreate the container after setting the URL.
+transcription service itself. Recreate the container after changing these settings.
+
+For [ScribeCrate](https://github.com/hwdsl2/scribecrate), use port `9000`
+unless you changed it. If your ScribeCrate container is named `whisper`, get its
+generated key with `docker exec whisper whisper_manage --getkey` and set
+`DOUGAL_VOICE_TRANSCRIPTION_API_KEY` in your private `.env` or Portainer Stack.
+Dougal sends this key only to the configured transcription endpoint, not to the
+chat provider. Leave it blank for a transcriber that does not require
+authentication. Use HTTPS if the request crosses an untrusted network.
 
 Send a voice note of up to 30 seconds and 2 MiB in your allowlisted private
 chat. Dougal replies in text. Voice notes can check Home Assistant but cannot
