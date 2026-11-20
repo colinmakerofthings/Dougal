@@ -115,11 +115,7 @@ def build_telegram_application(
         elif history is not None:
             history.record_received()
         try:
-            answer = (
-                await agent.respond(text, read_only=True)
-                if is_voice
-                else await agent.respond(text)
-            )
+            answer = await agent.respond(text)
         except RateLimitError as error:
             if (
                 error.code in ("credit_balance_exhausted", "insufficient_quota")

@@ -37,9 +37,9 @@ sequenceDiagram
 ```
 
 The chat provider receives the transcript, not the audio. Voice notes are
-read-only; use a typed message to make changes in Home Assistant. The web
-dashboard shows recent exchanges but does not accept messages. See
-[Telegram voice notes](#telegram-voice-notes) for setup.
+handled like text requests, including explicit requests to control Home
+Assistant devices. The web dashboard shows recent exchanges but does not
+accept messages. See [Telegram voice notes](#telegram-voice-notes) for setup.
 
 ## Requirements
 

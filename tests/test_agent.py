@@ -12,27 +12,59 @@ from src.tools.home_assistant import HomeAssistantClient
 
 
 @pytest.mark.asyncio
-async def test_voice_cannot_execute_an_action_even_if_model_calls_it() -> None:
+async def test_agent_can_execute_an_explicit_action() -> None:
     home_assistant = MagicMock(spec=HomeAssistantClient)
-    home_assistant.call_service = AsyncMock()
+    home_assistant.call_service = AsyncMock(return_value=[])
     tools = ToolRegistry(home_assistant)
     client = MagicMock(spec=AsyncOpenAI)
     completion = client.chat.completions.create = AsyncMock()
-    message = completion.return_value.choices = [MagicMock()]
     tool_call = MagicMock()
+    tool_call.id = "service-call"
     tool_call.function.name = "call_service"
-    message[0].message.tool_calls = [tool_call]
+    tool_call.function.arguments = json.dumps(
+        {
+            "domain": "light",
+            "service": "turn_off",
+            "entity_id": "light.kitchen",
+            "service_data": None,
+        }
+    )
+    tool_message = MagicMock()
+    tool_message.tool_calls = [tool_call]
+    tool_message.model_dump.return_value = {
+        "role": "assistant",
+        "tool_calls": [
+            {
+                "id": "service-call",
+                "type": "function",
+                "function": {
+                    "name": "call_service",
+                    "arguments": tool_call.function.arguments,
+                },
+            }
+        ],
+    }
+    final_message = MagicMock()
+    final_message.tool_calls = None
+    final_message.content = "The kitchen light is off."
+    completion.side_effect = [
+        MagicMock(choices=[MagicMock(message=tool_message)]),
+        MagicMock(choices=[MagicMock(message=final_message)]),
+    ]
 
     reply = await DougalAgent(client, "test-model", tools).respond(
-        "Turn off the kitchen lights", read_only=True
+        "Turn off the kitchen lights"
     )
 
-    definitions = completion.call_args.kwargs["tools"]
-    assert {tool["function"]["name"] for tool in definitions} == {
-        "get_status", "get_state", "list_entities"
-    }
-    assert isinstance(reply, str) and "Send a text message" in reply
-    home_assistant.call_service.assert_not_awaited()
+    definitions = completion.call_args_list[0].kwargs["tools"]
+    assert "call_service" in {tool["function"]["name"] for tool in definitions}
+    assert reply == "The kitchen light is off."
+    home_assistant.call_service.assert_awaited_once_with(
+        domain="light",
+        service="turn_off",
+        entity_id="light.kitchen",
+        service_data=None,
+    )
 
 
 @pytest.mark.asyncio
