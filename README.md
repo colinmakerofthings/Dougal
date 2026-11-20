@@ -221,8 +221,9 @@ credentials in Portainer, not in the Git repository.
 `DOUGAL_INDICATOR_LABEL` is also optional; set it to `Indicator_Lighting` to
 enable the entity-label filtering described above.
 
-- `http://localhost:8000/` shows a Dougal overview, service uptime, and links to
-  health and metrics, plus the latest 100 completed Telegram message/reply
+- `http://localhost:8000/` shows a Dougal overview, service uptime, Home Assistant
+  API connection status, and message counts and last receipt time, plus the latest
+  100 completed Telegram message/reply
   exchanges across all allowlisted users, newest first. Refresh for updates.
   History is held only in memory per service instance and cleared on restart;
   it does not change the AI's conversation context or import earlier Telegram
@@ -231,7 +232,8 @@ enable the entity-label filtering described above.
   "via Telegram" or "via Telegram voice" source badge. Display names do not
   affect the numeric user-ID
   allowlist. Numeric Telegram IDs are not stored in history or displayed.
-  The page does not expose configuration or check external services.
+  The page checks the configured Home Assistant API every 30 seconds; it does not
+  expose configuration or check Telegram or the AI provider.
   **There is no login: anyone who can reach the page can read the message
   contents and display names.** Keep it on your trusted network and do not
   expose it publicly.
@@ -240,6 +242,10 @@ enable the entity-label filtering described above.
   and uptime metrics.
 - `http://localhost:8000/api/status` returns the last accepted Telegram message
   receipt time and text and voice counts from the retained history as JSON.
+- `http://localhost:8000/api/home-assistant-status` checks the configured Home
+  Assistant API, returning `running`, `authentication_failed`, `unreachable`,
+  or `http_error` in its `status` field. HTTP failures also include
+  `http_status`. A running result confirms API access, not device health.
 
 ### Status API
 
@@ -268,6 +274,10 @@ contents, names, user IDs, or credentials are returned.
 
 Responses include `Cache-Control: no-store`. The endpoint has no authentication;
 keep it on your trusted network.
+
+The Home Assistant status endpoint is also unauthenticated and uses
+`Cache-Control: no-store`. Each request makes a read-only API check using
+Dougal's configured credentials; keep it on your trusted network.
 
 ## Run locally
 

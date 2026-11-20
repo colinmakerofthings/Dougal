@@ -136,6 +136,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "voice_messages": voice_messages,
         }
 
+    @app.get("/api/home-assistant-status")
+    async def home_assistant_status(response: Response) -> dict[str, str | int]:
+        response.headers["Cache-Control"] = "no-store"
+        client = HomeAssistantClient(
+            configured.home_assistant_url,
+            configured.home_assistant_token.get_secret_value(),
+        )
+        try:
+            return await client.get_status()
+        finally:
+            await client.close()
+
     @app.get("/metrics", response_class=PlainTextResponse)
     async def metrics() -> str:
         return (

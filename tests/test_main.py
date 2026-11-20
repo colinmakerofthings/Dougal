@@ -7,6 +7,7 @@ import pytest
 from fastapi import FastAPI
 
 from src.config import Settings
+from src.tools.home_assistant import HomeAssistantClient
 
 
 @pytest.fixture
@@ -55,8 +56,9 @@ async def test_landing_page_is_read_only_overview_with_uptime(
     assert response.headers["cache-control"] == "no-store"
     assert expected in response.text
     assert f'data-seconds="{elapsed}"' in response.text
-    assert 'href="/health"' in response.text
-    assert 'href="/metrics"' in response.text
+    assert "Since this service instance started. Updates automatically." not in response.text
+    assert 'href="/health"' not in response.text
+    assert 'href="/metrics"' not in response.text
     assert "__UPTIME__" not in response.text
     assert "__UPTIME_SECONDS__" not in response.text
     assert "__HISTORY__" not in response.text
@@ -114,6 +116,48 @@ async def test_existing_health_and_metrics_are_unchanged(app: FastAPI) -> None:
     assert metrics.headers["content-type"].startswith("text/plain")
     assert "dougal_http_requests_total 2\n" in metrics.text
     assert "dougal_uptime_seconds 0.00\n" in metrics.text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("ha_status", "expected"),
+    [
+        (200, {"status": "running"}),
+        (401, {"status": "authentication_failed", "http_status": 401}),
+        (403, {"status": "authentication_failed", "http_status": 403}),
+        (503, {"status": "http_error", "http_status": 503}),
+        (None, {"status": "unreachable"}),
+    ],
+)
+async def test_home_assistant_status_reports_api_connection(
+    app: FastAPI, ha_status: int | None, expected: dict[str, str | int]
+) -> None:
+    requests: list[httpx.Request] = []
+
+    def handle_home_assistant(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        if ha_status is None:
+            raise httpx.ConnectError("private connection details", request=request)
+        return httpx.Response(ha_status, json={"message": "private provider details"})
+
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(handle_home_assistant),
+        base_url="http://ha.test",
+    ) as ha_http:
+        ha_client = HomeAssistantClient("http://ha.test", "test-token", ha_http)
+        with patch("src.main.HomeAssistantClient", return_value=ha_client):
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                response = await client.get("/api/home-assistant-status")
+
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store"
+    assert response.json() == expected
+    assert len(requests) == 1
+    assert requests[0].method == "GET"
+    assert requests[0].url.path == "/api/"
+    assert "private" not in response.text
 
 
 @pytest.mark.asyncio
