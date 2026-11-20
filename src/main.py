@@ -123,13 +123,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return {"uptime_seconds": uptime_seconds()}
 
     @app.get("/api/status")
-    async def status(response: Response) -> dict[str, str | None]:
+    async def status(response: Response) -> dict[str, str | int | None]:
         response.headers["Cache-Control"] = "no-store"
         received_at = history.last_message_received_at
+        exchanges = history.exchanges
+        voice_messages = sum(exchange.is_voice for exchange in exchanges)
         return {
             "last_message_received": (
                 received_at.isoformat() if received_at is not None else None
-            )
+            ),
+            "text_messages": len(exchanges) - voice_messages,
+            "voice_messages": voice_messages,
         }
 
     @app.get("/metrics", response_class=PlainTextResponse)

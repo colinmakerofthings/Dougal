@@ -117,7 +117,7 @@ async def test_existing_health_and_metrics_are_unchanged(app: FastAPI) -> None:
 
 
 @pytest.mark.asyncio
-async def test_status_reports_last_received_time_without_message_details(
+async def test_status_reports_last_received_time_and_counts_without_message_details(
     app: FastAPI, settings: Settings
 ) -> None:
     from src.main import create_app
@@ -128,7 +128,11 @@ async def test_status_reports_last_received_time_without_message_details(
     ) as client:
         initial = await client.get("/api/status")
         assert initial.status_code == 200
-        assert initial.json() == {"last_message_received": None}
+        assert initial.json() == {
+            "last_message_received": None,
+            "text_messages": 0,
+            "voice_messages": 0,
+        }
 
         received_at = datetime(2026, 11, 17, 16, 40, 0, tzinfo=UTC)
         with patch("src.history.datetime") as clock:
@@ -138,20 +142,32 @@ async def test_status_reports_last_received_time_without_message_details(
         response = await client.get("/api/status")
         assert response.status_code == 200
         assert response.json() == {
-            "last_message_received": "2026-11-17T16:40:00+00:00"
+            "last_message_received": "2026-11-17T16:40:00+00:00",
+            "text_messages": 0,
+            "voice_messages": 0,
         }
         assert response.headers["cache-control"] == "no-store"
         assert history.exchanges == ()
 
         history.add("private-message", "private-reply", user_name="private-name")
+        history.add("private-transcript", "private-reply", is_voice=True)
+        history.add("another private message", "private-reply")
         after_reply = await client.get("/api/status")
-        assert after_reply.json() == response.json()
+        assert after_reply.json() == {
+            "last_message_received": "2026-11-17T16:40:00+00:00",
+            "text_messages": 2,
+            "voice_messages": 1,
+        }
 
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=create_app(settings)), base_url="http://test"
     ) as client:
         restarted = await client.get("/api/status")
-    assert restarted.json() == {"last_message_received": None}
+    assert restarted.json() == {
+        "last_message_received": None,
+        "text_messages": 0,
+        "voice_messages": 0,
+    }
 
 
 @pytest.mark.asyncio
@@ -173,7 +189,7 @@ async def test_history_keeps_latest_100_exchanges_and_resets_per_app(
     from src.main import create_app
 
     history = app.state.message_history
-    history.add("discarded-message", "discarded-reply")
+    history.add("discarded-message", "discarded-reply", is_voice=True)
     for index in range(1, 101):
         history.add(
             f"user-message-{index}", f"bot-reply-{index}", user_name="Colin Brown"
@@ -183,7 +199,10 @@ async def test_history_keeps_latest_100_exchanges_and_resets_per_app(
         transport=httpx.ASGITransport(app=app), base_url="http://test"
     ) as client:
         response = await client.get("/")
+        status = await client.get("/api/status")
 
+    assert status.json()["text_messages"] == 100
+    assert status.json()["voice_messages"] == 0
     assert response.text.count('<article class="exchange">') == 100
     assert response.text.count('<span class="source">via Telegram</span>') == 100
     assert "discarded-message" not in response.text
