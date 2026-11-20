@@ -22,7 +22,7 @@
     .cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
     .card { background: #fffaf0; border: 1px solid #d5c7ac; border-radius: 20px; padding: 28px; }
     h2 { font-size: 20px; margin: 0 0 16px; }
-    .uptime { font-size: 32px; font-weight: 700; margin: 12px 0; font-variant-numeric: tabular-nums; }
+    #uptime { font-variant-numeric: tabular-nums; }
     .muted { color: #526154; font-size: 14px; }
     .status-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin: 24px 0 0; }
     .status-grid dt { color: #526154; font-size: 14px; }
@@ -39,7 +39,6 @@
     .speaker { font-size: 13px; font-weight: 700; margin-bottom: 6px; }
     .message { white-space: pre-wrap; overflow-wrap: anywhere; margin-top: 0; }
     .reply { background: #e7eddf; border-radius: 12px; padding: 16px; }
-    footer { padding-top: 32px; }
     @media (max-width: 600px) {
       main { padding: 24px 18px; }
       .hero { padding-top: 24px; flex-direction: column-reverse; align-items: flex-start; }
@@ -67,9 +66,11 @@
     <div class="cards">
       <section class="card" aria-labelledby="service">
         <h2 id="service">Keeping an eye on things</h2>
-        <p class="muted">Service uptime</p>
-        <p class="uptime" id="uptime" data-seconds="__UPTIME_SECONDS__">__UPTIME__</p>
         <dl class="status-grid">
+          <div class="wide">
+            <dt>Service uptime</dt>
+            <dd id="uptime" data-seconds="__UPTIME_SECONDS__">__UPTIME__</dd>
+          </div>
           <div class="wide">
             <dt>Home Assistant</dt>
             <dd class="connection" id="home-assistant-status">Checking...</dd>
@@ -79,15 +80,15 @@
             <dd id="last-message">Checking...</dd>
           </div>
           <div>
-            <dt>Text messages</dt>
+            <dt>Text messages*</dt>
             <dd id="text-messages">Checking...</dd>
           </div>
           <div>
-            <dt>Voice messages</dt>
+            <dt>Voice messages*</dt>
             <dd id="voice-messages">Checking...</dd>
           </div>
         </dl>
-        <p class="muted">Counts from the latest 100 completed exchanges.</p>
+        <p class="muted">*Counts from the last 30 days of completed exchanges.</p>
         <noscript><p class="muted">Enable JavaScript to see live status and update uptime.</p></noscript>
       </section>
       <section class="card" aria-labelledby="getting-started">
@@ -105,14 +106,12 @@
     <section class="card history" aria-labelledby="history">
       <h2 id="history">A little catch-up</h2>
       <p>Recent messages between your Telegram users and Dougal, newest exchanges first.</p>
-      <p class="muted">Visible to anyone who can open this page. The latest 100 exchanges
-        across all allowlisted users are kept in memory and cleared on restart.
+      <p class="muted">Visible to anyone who can open this page. Exchanges
+        across all allowlisted users are stored for 30 days.
         Refresh to see new replies. Telegram display names are shown;
         numeric user IDs are not stored in history or displayed.</p>
       __HISTORY__
     </section>
-    <footer class="muted">This page confirms the web service is responding, not the health
-      of Telegram, the AI provider, or Home Assistant. Keep it on your trusted network.</footer>
   </main>
   <script>
     const uptime = document.getElementById("uptime");

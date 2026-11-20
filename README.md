@@ -222,10 +222,10 @@ credentials in Portainer, not in the Git repository.
 enable the entity-label filtering described above.
 
 - `http://localhost:8000/` shows a Dougal overview, service uptime, Home Assistant
-  API connection status, and message counts and last receipt time, plus the latest
-  100 completed Telegram message/reply
-  exchanges across all allowlisted users, newest first. Refresh for updates.
-  History is held only in memory per service instance and cleared on restart;
+  API connection status, and message counts and last receipt time, plus completed
+  Telegram message/reply exchanges from the last 30 days across all allowlisted
+  users, newest first. Refresh for history updates.
+  History is stored in SQLite and survives restarts and container recreation;
   it does not change the AI's conversation context or import earlier Telegram
   messages. Each exchange shows the sender's Telegram display name (first
   name and last name, when present) at the time of the exchange and a
@@ -262,14 +262,14 @@ The read-only `GET /api/status` endpoint returns HTTP 200 with a JSON body:
 `last_message_received` is an ISO 8601 UTC timestamp recorded when Dougal accepts an
 allowlisted user's private text message or, when enabled, a voice note.
 It is recorded before transcription or waiting for the AI. Ignored messages
-and commands do not update it. It is `null` until
-the first accepted message after each restart.
+and commands do not update it. It is `null` until the first accepted message
+or when the latest receipt is 30 days old.
 
 `text_messages` and `voice_messages` count incoming Telegram messages and
-voice notes in the latest 100 completed exchanges retained in memory. They
+voice notes in completed exchanges from the last 30 days. They
 exclude messages not recorded in history, such as a voice note that could not
 be transcribed. These are not lifetime totals: counts can drop as older
-exchanges are evicted, and both start at zero after a restart. No message
+exchanges expire. Counts persist across restarts. No message
 contents, names, user IDs, or credentials are returned.
 
 Responses include `Cache-Control: no-store`. The endpoint has no authentication;
@@ -278,6 +278,22 @@ keep it on your trusted network.
 The Home Assistant status endpoint is also unauthenticated and uses
 `Cache-Control: no-store`. Each request makes a read-only API check using
 Dougal's configured credentials; keep it on your trusted network.
+
+### History storage
+
+By default, local runs store history in `data/history.sqlite3`; set
+`DOUGAL_HISTORY_PATH` to choose another file. Docker Compose stores it in the
+named `dougal-data` volume. Preserve that volume when redeploying or replacing
+the container; deleting the volume also deletes its history. Removing the
+Compose stack with its volumes deletes it too.
+
+Messages, replies, display names, and the most recent receipt time are retained
+for 30 days. Expired records are removed on startup, when history is read, and
+hourly while the service is running; if the service is stopped, cleanup resumes
+when it starts. Existing in-memory history cannot be recovered after upgrading.
+The database contains private conversations, so restrict access to the data
+directory, volume, and any backups. Backups have their own retention and are
+not automatically pruned.
 
 ## Run locally
 

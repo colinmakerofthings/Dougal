@@ -1,5 +1,7 @@
 import logging
+import sqlite3
 from datetime import UTC, datetime
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
@@ -34,6 +36,7 @@ from src.telegram_bot import build_telegram_application
 async def test_voice_notes_use_local_transcription_and_agent(
     enabled: bool, user_id: int, chat_type: str, duration: int, size: int,
     status: int, reply: str | None, api_key: str, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     url = "http://transcriber.test/v1/audio/transcriptions"
     monkeypatch.setenv("DOUGAL_VOICE_TRANSCRIPTION_API_KEY", api_key)
@@ -47,7 +50,7 @@ async def test_voice_notes_use_local_transcription_and_agent(
     )
     agent = MagicMock(spec=DougalAgent)
     agent.respond = AsyncMock(return_value="The kitchen light is off.")
-    history = MessageHistory()
+    history = MessageHistory(tmp_path / "history.sqlite3")
     app = build_telegram_application(settings, agent, history=history)
     update = MagicMock(spec=Update)
     update.effective_user = User(id=user_id, first_name="Colin", is_bot=False)
@@ -88,12 +91,12 @@ async def test_voice_notes_use_local_transcription_and_agent(
     assert get_file.await_count == len(requests) == int(accepted)
     if accepted and status == 200:
         agent.respond.assert_awaited_once_with("Turn off the kitchen lights")
-        [exchange] = history.exchanges
+        [exchange] = await history.get_exchanges()
         assert exchange.user_message == "Turn off the kitchen lights"
         assert exchange.is_voice
     else:
         agent.respond.assert_not_awaited()
-        assert history.exchanges == ()
+        assert await history.get_exchanges() == ()
     if reply is None:
         update.effective_message.reply_text.assert_not_awaited()
     else:
@@ -115,6 +118,7 @@ async def test_provider_limits_get_safe_specific_replies(
     error_type: str,
     expected_reply: str,
     caplog: pytest.LogCaptureFixture,
+    tmp_path: Path,
 ) -> None:
     settings = Settings(
         telegram_bot_token="123456:test-token",
@@ -137,7 +141,7 @@ async def test_provider_limits_get_safe_specific_replies(
             },
         )
     )
-    history = MessageHistory()
+    history = MessageHistory(tmp_path / "history.sqlite3")
     application = build_telegram_application(settings, agent, history=history)
     update = MagicMock(spec=Update)
     update.effective_user = User(
@@ -158,9 +162,9 @@ async def test_provider_limits_get_safe_specific_replies(
     assert "private-provider-details" not in caplog.text
     assert caplog.records
     assert all(record.exc_info is None for record in caplog.records)
-    assert len(history.exchanges) == 1
-    assert history.exchanges[0].reply == reply
-    assert "private-provider-details" not in history.exchanges[0].reply
+    [exchange] = await history.get_exchanges()
+    assert exchange.reply == reply
+    assert "private-provider-details" not in exchange.reply
 
 
 @pytest.mark.asyncio
@@ -180,6 +184,7 @@ async def test_only_authorized_private_exchanges_are_recorded(
     should_record: bool,
     message_text: str | None,
     last_name: str | None,
+    tmp_path: Path,
 ) -> None:
     settings = Settings(
         telegram_bot_token="123456:test-token",
@@ -188,14 +193,14 @@ async def test_only_authorized_private_exchanges_are_recorded(
         home_assistant_url="http://ha.local",
         home_assistant_token="test-token",
     )
-    history = MessageHistory()
+    history = MessageHistory(tmp_path / "history.sqlite3")
     agent = MagicMock(spec=DougalAgent)
     answer = "A" * 4100
     received_at = datetime(2026, 11, 17, 16, 40, 0, tzinfo=UTC)
 
     async def respond(text: str) -> str:
-        assert history.last_message_received_at == received_at
-        assert history.exchanges == ()
+        assert (await history.get_status()).last_message_received_at == received_at
+        assert await history.get_exchanges() == ()
         return answer
 
     agent.respond = AsyncMock(side_effect=respond)
@@ -208,15 +213,14 @@ async def test_only_authorized_private_exchanges_are_recorded(
     update.effective_message.text = message_text
     update.effective_message.reply_text = AsyncMock()
 
-    with patch("src.history.datetime") as clock:
-        clock.now.return_value = received_at
+    with patch("src.history._utcnow", return_value=received_at):
         await application.handlers[0][0].callback(update, MagicMock())
 
     if should_record:
-        assert len(history.exchanges) == 1
-        assert history.exchanges[0].user_message == "Hello"
-        assert history.exchanges[0].reply == answer
-        assert history.exchanges[0].user_name == (
+        [exchange] = await history.get_exchanges()
+        assert exchange.user_message == "Hello"
+        assert exchange.reply == answer
+        assert exchange.user_name == (
             "Colin Brown" if last_name else "Colin"
         )
         assert update.effective_message.reply_text.await_count == 2
@@ -224,8 +228,8 @@ async def test_only_authorized_private_exchanges_are_recorded(
             call.args[0] for call in update.effective_message.reply_text.await_args_list
         ) == answer
     else:
-        assert history.exchanges == ()
-        assert history.last_message_received_at is None
+        assert await history.get_exchanges() == ()
+        assert (await history.get_status()).last_message_received_at is None
         agent.respond.assert_not_awaited()
         update.effective_message.reply_text.assert_not_awaited()
 
@@ -262,7 +266,49 @@ async def test_unexpected_error_does_not_claim_home_assistant_is_unreachable(
 
 
 @pytest.mark.asyncio
-async def test_entity_replies_use_html_but_prose_and_history_remain_plain() -> None:
+@pytest.mark.parametrize("failure_point", ["record_received", "add"])
+async def test_history_storage_failure_is_reported_without_private_details(
+    tmp_path: Path, failure_point: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    settings = Settings(
+        telegram_bot_token="123456:test-token",
+        allowed_telegram_user_ids={123},
+        openai_api_key="test-key",
+        home_assistant_url="http://ha.local",
+        home_assistant_token="test-token",
+    )
+    agent = MagicMock(spec=DougalAgent)
+    agent.respond = AsyncMock(return_value="Done.")
+    history = MessageHistory(tmp_path / "history.sqlite3")
+    application = build_telegram_application(settings, agent, history=history)
+    update = MagicMock(spec=Update)
+    update.effective_user = User(id=123, first_name="Colin", is_bot=False)
+    update.effective_chat.type = ChatType.PRIVATE
+    update.effective_message.text = "Hello"
+    update.effective_message.reply_text = AsyncMock()
+
+    with patch.object(
+        history, failure_point,
+        new=AsyncMock(side_effect=sqlite3.OperationalError("private database details")),
+    ):
+        await application.handlers[0][0].callback(update, MagicMock())
+
+    replies = [call.args[0] for call in update.effective_message.reply_text.await_args_list]
+    if failure_point == "record_received":
+        agent.respond.assert_not_awaited()
+        assert replies == [
+            "I couldn't record that message, so I couldn't process it. Please try again."
+        ]
+    else:
+        agent.respond.assert_awaited_once()
+        assert replies == ["Done.", "I couldn't save this exchange to history."]
+    assert "private database details" not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_entity_replies_use_html_but_prose_and_history_remain_plain(
+    tmp_path: Path,
+) -> None:
     settings = Settings(
         telegram_bot_token="123456:test-token",
         allowed_telegram_user_ids={123},
@@ -277,7 +323,7 @@ async def test_entity_replies_use_html_but_prose_and_history_remain_plain() -> N
         ])],
         text="An unrelated result: <not HTML>.",
     ))
-    history = MessageHistory()
+    history = MessageHistory(tmp_path / "history.sqlite3")
     application = build_telegram_application(settings, agent, history=history)
     update = MagicMock(spec=Update)
     update.effective_user = User(id=123, first_name="Colin", is_bot=False)
@@ -292,7 +338,7 @@ async def test_entity_replies_use_html_but_prose_and_history_remain_plain() -> N
     assert prose.kwargs == {}
     assert "&lt;Desk &amp; lamp&gt;" in entity_list.args[0]
     assert entity_list.kwargs == {"parse_mode": ParseMode.HTML}
-    [exchange] = history.exchanges
+    [exchange] = await history.get_exchanges()
     assert "<Desk & lamp>" in exchange.reply
     assert "<b>" not in exchange.reply
     assert "light.desk" not in exchange.reply
