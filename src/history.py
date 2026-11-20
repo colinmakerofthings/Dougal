@@ -11,6 +11,7 @@ class MessageExchange:
     user_message: str
     reply: str
     user_name: str = "User"
+    is_voice: bool = False
 
 
 class MessageHistory:
@@ -22,10 +23,11 @@ class MessageHistory:
         self.last_message_received_at = datetime.now(UTC)
 
     def add(
-        self, user_message: str, reply: str, *, user_name: str = "User"
+        self, user_message: str, reply: str, *, user_name: str = "User",
+        is_voice: bool = False,
     ) -> None:
         self._exchanges.append(
-            MessageExchange(datetime.now(UTC), user_message, reply, user_name)
+            MessageExchange(datetime.now(UTC), user_message, reply, user_name, is_voice)
         )
 
     @property

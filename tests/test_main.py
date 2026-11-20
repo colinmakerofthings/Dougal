@@ -155,6 +155,18 @@ async def test_status_reports_last_received_time_without_message_details(
 
 
 @pytest.mark.asyncio
+async def test_history_labels_voice_transcripts(app: FastAPI) -> None:
+    app.state.message_history.add("Which lights are off?", "Kitchen", is_voice=True)
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        response = await client.get("/")
+
+    assert '<span class="source">via Telegram voice</span>' in response.text
+    assert "Which lights are off?" in response.text
+
+
+@pytest.mark.asyncio
 async def test_history_keeps_latest_100_exchanges_and_resets_per_app(
     app: FastAPI, settings: Settings
 ) -> None:

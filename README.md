@@ -125,6 +125,28 @@ If the AI provider reports exhausted API credits, Dougal replies with a
 top-up reminder. Temporary rate limits instead receive a request to try
 again later.
 
+### Telegram voice notes
+
+Voice notes are disabled by default. To enable them, run a self-hosted
+speech-to-text service that accepts Ogg/Opus files at an OpenAI-compatible
+transcription endpoint. Set the full URL in `.env` or your Portainer Stack:
+
+```dotenv
+DOUGAL_VOICE_TRANSCRIPTION_URL=http://transcriber:8000/v1/audio/transcriptions
+DOUGAL_VOICE_TRANSCRIPTION_MODEL=whisper-1
+```
+
+Replace `transcriber` with a hostname or IP reachable from Dougal's container,
+and set the model to one your service supports. Dougal does not start a
+transcription service itself. Recreate the container after setting the URL.
+
+Send a voice note of up to 30 seconds and 2 MiB in your allowlisted private
+chat. Dougal replies in text. Voice notes can check Home Assistant but cannot
+change it; use a typed message for changes. Audio is sent from Telegram to
+your configured transcriber and is not saved by Dougal. The transcript goes
+to the configured chat provider like a typed message and appears in dashboard
+history with a "via Telegram voice" badge.
+
 ## Run with Docker Compose
 
 ```sh
@@ -162,8 +184,8 @@ enable the entity-label filtering described above.
   it does not change the AI's conversation context or import earlier Telegram
   messages. Each exchange shows the sender's Telegram display name (first
   name and last name, when present) at the time of the exchange and a
-  "via Telegram" source badge; no extra
-  configuration is needed. Display names do not affect the numeric user-ID
+  "via Telegram" or "via Telegram voice" source badge. Display names do not
+  affect the numeric user-ID
   allowlist. Numeric Telegram IDs are not stored in history or displayed.
   The page does not expose configuration or check external services.
   **There is no login: anyone who can reach the page can read the message
@@ -183,9 +205,10 @@ The read-only `GET /api/status` endpoint returns HTTP 200 with a JSON body:
 {"last_message_received": "2026-11-17T16:40:00+00:00"}
 ```
 
-The value is an ISO 8601 UTC timestamp recorded when Dougal receives an
-allowlisted user's private text message, before waiting for the AI or sending
-a reply. Ignored messages and commands do not update it. It is `null` until
+The value is an ISO 8601 UTC timestamp recorded when Dougal accepts an
+allowlisted user's private text message or, when enabled, a voice note.
+It is recorded before transcription or waiting for the AI. Ignored messages
+and commands do not update it. It is `null` until
 the first accepted message after each restart. No message contents, names,
 user IDs, or credentials are returned.
 

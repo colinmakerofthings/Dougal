@@ -1,6 +1,6 @@
 """Environment-backed application settings."""
 
-from pydantic import Field, SecretStr, field_validator
+from pydantic import Field, HttpUrl, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -20,6 +20,13 @@ class Settings(BaseSettings):
     home_assistant_url: str
     home_assistant_token: SecretStr
     dougal_indicator_label: str = ""
+    dougal_voice_transcription_url: HttpUrl | None = None
+    dougal_voice_transcription_model: str = "whisper-1"
+
+    @field_validator("dougal_voice_transcription_url", mode="before")
+    @classmethod
+    def blank_voice_url_is_disabled(cls, value: object) -> object:
+        return None if isinstance(value, str) and not value.strip() else value
 
     @field_validator("home_assistant_url")
     @classmethod

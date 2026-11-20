@@ -5,7 +5,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 from openai import RateLimitError
-from telegram import Update, User
+from pydantic import HttpUrl
+from telegram import Update, User, Voice
 from telegram.constants import ChatType, ParseMode
 
 from src.agent import DougalAgent
@@ -13,6 +14,85 @@ from src.config import Settings
 from src.entity_responses import EntityList, EntityResponse
 from src.history import MessageHistory
 from src.telegram_bot import build_telegram_application
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("enabled", "user_id", "chat_type", "duration", "size", "status", "reply"),
+    [
+        (True, 123, ChatType.PRIVATE, 30, 20, 200, "The kitchen light is off."),
+        (True, 123, ChatType.PRIVATE, 30, 20, 503, "I couldn't transcribe"),
+        (True, 123, ChatType.PRIVATE, 31, 20, 200, "up to 30 seconds"),
+        (True, 123, ChatType.PRIVATE, 30, 2 * 1024 * 1024 + 1, 200, "2 MiB"),
+        (True, 999, ChatType.PRIVATE, 30, 20, 200, None),
+        (True, 123, ChatType.GROUP, 30, 20, 200, None),
+        (False, 123, ChatType.PRIVATE, 30, 20, 200, None),
+    ],
+)
+async def test_voice_notes_use_local_transcription_and_read_only_agent(
+    enabled: bool, user_id: int, chat_type: str, duration: int, size: int,
+    status: int, reply: str | None,
+) -> None:
+    url = "http://transcriber.test/v1/audio/transcriptions"
+    settings = Settings(
+        telegram_bot_token="123456:test-token",
+        allowed_telegram_user_ids={123},
+        openai_api_key="test-key",
+        home_assistant_url="http://ha.local",
+        home_assistant_token="test-token",
+        dougal_voice_transcription_url=HttpUrl(url) if enabled else None,
+    )
+    agent = MagicMock(spec=DougalAgent)
+    agent.respond = AsyncMock(return_value="The kitchen light is off.")
+    history = MessageHistory()
+    app = build_telegram_application(settings, agent, history=history)
+    update = MagicMock(spec=Update)
+    update.effective_user = User(id=user_id, first_name="Colin", is_bot=False)
+    update.effective_chat.type = chat_type
+    update.effective_message.text = None
+    update.effective_message.voice = Voice("file", "unique", duration, file_size=size)
+    update.effective_message.reply_text = AsyncMock()
+    file = MagicMock(file_size=20)
+    file.download_as_bytearray = AsyncMock(return_value=bytearray(b"OggS test audio"))
+    requests = []
+
+    def transcribe(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        assert str(request.url) == url
+        assert b"OggS test audio" in request.content
+        assert b"whisper-1" in request.content
+        assert "authorization" not in request.headers
+        return httpx.Response(status, json={"text": "  Which lights are off?  "})
+
+    async_client = httpx.AsyncClient
+    with (
+        patch.object(Voice, "get_file", new=AsyncMock(return_value=file)) as get_file,
+        patch(
+            "src.telegram_bot.httpx.AsyncClient",
+            side_effect=lambda **kwargs: async_client(
+                transport=httpx.MockTransport(transcribe), **kwargs
+            ),
+        ),
+    ):
+        await app.handlers[0][0].callback(update, MagicMock())
+
+    accepted = (
+        enabled and user_id == 123 and chat_type == ChatType.PRIVATE
+        and duration == 30 and size == 20
+    )
+    assert get_file.await_count == len(requests) == int(accepted)
+    if accepted and status == 200:
+        agent.respond.assert_awaited_once_with("Which lights are off?", read_only=True)
+        [exchange] = history.exchanges
+        assert exchange.user_message == "Which lights are off?"
+        assert exchange.is_voice
+    else:
+        agent.respond.assert_not_awaited()
+        assert history.exchanges == ()
+    if reply is None:
+        update.effective_message.reply_text.assert_not_awaited()
+    else:
+        assert reply in update.effective_message.reply_text.call_args.args[0]
 
 
 @pytest.mark.asyncio
