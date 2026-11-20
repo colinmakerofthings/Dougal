@@ -6,6 +6,41 @@ calling, while Home Assistant access stays on your own network. Version 0.1
 supports checking Home Assistant API availability, discovering entities by
 domain, reading one entity's state, and calling a Home Assistant service.
 
+## How it works
+
+```mermaid
+sequenceDiagram
+    participant T as Telegram
+    participant D as Dougal
+    participant S as Self-hosted transcriber (optional)
+    participant C as Chat provider
+    participant H as Home Assistant
+
+    T->>D: Text message or voice note from an allowlisted private chat
+    opt Voice note, if enabled
+        D->>S: Send downloaded audio
+        S-->>D: Return transcript
+    end
+    D->>C: Send typed text or transcript
+    alt Home Assistant lookup or action needed
+        C-->>D: Request a tool call
+        D->>H: Check status or state (typed messages can also make changes)
+        H-->>D: Return result
+        opt Follow-up needed
+            D->>C: Send tool result
+            C-->>D: Return reply text
+        end
+    else No tool needed
+        C-->>D: Return reply text
+    end
+    D-->>T: Send a text reply
+```
+
+The chat provider receives the transcript, not the audio. Voice notes are
+read-only; use a typed message to make changes in Home Assistant. The web
+dashboard shows recent exchanges but does not accept messages. See
+[Telegram voice notes](#telegram-voice-notes) for setup.
+
 ## Requirements
 
 - Docker with Compose, or Python 3.12+
