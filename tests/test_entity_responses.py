@@ -96,6 +96,31 @@ def test_off_state_filter_excludes_on_and_unavailable_entities() -> None:
     assert "Unavailable lamp" not in message
 
 
+def test_unavailable_state_filter_excludes_off_and_unknown_entities() -> None:
+    [message] = render_entity_list(
+        EntityList(
+            domain="light",
+            entities=[
+                {"entity_id": "light.off", "name": "Off lamp", "state": "off"},
+                {
+                    "entity_id": "light.unavailable",
+                    "name": "Unavailable lamp",
+                    "state": "unavailable",
+                },
+                {"entity_id": "light.unknown", "name": "Unknown lamp", "state": "unknown"},
+            ],
+            state="unavailable",
+        )
+    )
+
+    assert "UNAVAILABLE (1)" in message
+    assert "Unavailable lamp" in message
+    assert "OFF" not in message
+    assert "Off lamp" not in message
+    assert "UNKNOWN" not in message
+    assert "Unknown lamp" not in message
+
+
 @pytest.mark.parametrize(
     ("entities", "state", "expected"),
     [
