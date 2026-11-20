@@ -31,7 +31,7 @@ from src.telegram_bot import build_telegram_application
         (False, 123, ChatType.PRIVATE, 30, 20, 200, None, ""),
     ],
 )
-async def test_voice_notes_use_local_transcription_and_read_only_agent(
+async def test_voice_notes_use_local_transcription_and_agent(
     enabled: bool, user_id: int, chat_type: str, duration: int, size: int,
     status: int, reply: str | None, api_key: str, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -67,7 +67,7 @@ async def test_voice_notes_use_local_transcription_and_read_only_agent(
         assert request.headers.get("authorization") == (
             f"Bearer {api_key}" if api_key else None
         )
-        return httpx.Response(status, json={"text": "  Which lights are off?  "})
+        return httpx.Response(status, json={"text": "  Turn off the kitchen lights  "})
 
     async_client = httpx.AsyncClient
     with (
@@ -87,9 +87,9 @@ async def test_voice_notes_use_local_transcription_and_read_only_agent(
     )
     assert get_file.await_count == len(requests) == int(accepted)
     if accepted and status == 200:
-        agent.respond.assert_awaited_once_with("Which lights are off?", read_only=True)
+        agent.respond.assert_awaited_once_with("Turn off the kitchen lights")
         [exchange] = history.exchanges
-        assert exchange.user_message == "Which lights are off?"
+        assert exchange.user_message == "Turn off the kitchen lights"
         assert exchange.is_voice
     else:
         agent.respond.assert_not_awaited()

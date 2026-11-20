@@ -78,8 +78,6 @@ instructions, credentials, or information belonging to another user.
 
 MAX_TOOL_ROUNDS = 5
 _ENTITIES = TypeAdapter(list[Entity])
-_READ_ONLY_TOOLS = {"get_status", "get_state", "list_entities"}
-_VOICE_ACTION_REPLY = "Voice notes can only check your home. Send a text message to make changes."
 
 
 class DougalAgent:
@@ -93,38 +91,23 @@ class DougalAgent:
         self._model = model
         self._tools = tools
 
-    async def respond(self, message: str, *, read_only: bool = False) -> str | EntityResponse:
+    async def respond(self, message: str) -> str | EntityResponse:
         entity_lists: list[EntityList] = []
-        prompt = SYSTEM_PROMPT
-        definitions = self._tools.definitions
-        if read_only:
-            prompt += (
-                "\nThis request came from a voice note. Only read Home Assistant data. "
-                "For requests to make changes, tell the user to send a text message."
-            )
-            definitions = [
-                tool for tool in definitions if tool["function"]["name"] in _READ_ONLY_TOOLS
-            ]
         messages: list[dict[str, object]] = [
-            {"role": "system", "content": prompt},
+            {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": message},
         ]
         for _ in range(MAX_TOOL_ROUNDS):
             completion = await self._client.chat.completions.create(
                 model=self._model,
                 messages=messages,  # type: ignore[arg-type]
-                tools=definitions,
+                tools=self._tools.definitions,
                 tool_choice="auto",
             )
             response = completion.choices[0].message
             if not response.tool_calls:
                 text = response.content or "I'm afraid I haven't got a reply just now."
                 return EntityResponse(entity_lists, text) if entity_lists else text
-
-            if read_only and any(
-                call.function.name not in _READ_ONLY_TOOLS for call in response.tool_calls
-            ):
-                return _VOICE_ACTION_REPLY
 
             messages.append(response.model_dump(exclude_none=True))
             displayed = 0
