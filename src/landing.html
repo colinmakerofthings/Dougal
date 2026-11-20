@@ -12,7 +12,7 @@
     header { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
     .brand { color: #193c2a; font-weight: 800; font-size: 24px; letter-spacing: -1px; }
     .badge { background: #dce8d7; color: #214d32; padding: 8px 14px; border-radius: 24px; font-size: 14px; }
-    .hero { padding: 32px 0 40px; display: flex; align-items: center; gap: 32px; }
+    .hero { padding: 16px 0 40px; display: flex; align-items: center; gap: 32px; }
     .hero-content { flex: 1; min-width: 0; }
     .portrait { width: 220px; height: 220px; flex: none; object-fit: cover; border-radius: 24px; }
     .eyebrow { color: #76551e; font-size: 13px; font-weight: 700; letter-spacing: 2px; text-transform: uppercase; }
@@ -22,14 +22,16 @@
     .cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
     .card { background: #fffaf0; border: 1px solid #d5c7ac; border-radius: 20px; padding: 28px; }
     h2 { font-size: 20px; margin: 0 0 16px; }
-    .uptime { font-size: 32px; font-weight: 700; margin: 12px 0; font-variant-numeric: tabular-nums; }
+    #uptime { font-variant-numeric: tabular-nums; }
     .muted { color: #526154; font-size: 14px; }
+    .status-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin: 24px 0 0; }
+    .status-grid dt { color: #526154; font-size: 14px; }
+    .status-grid dd { margin: 4px 0 0; font-weight: 700; overflow-wrap: anywhere; }
+    .status-grid .wide { grid-column: 1 / -1; }
+    .connection[data-state="running"] { color: #245b38; }
+    .connection[data-state="unreachable"], .connection[data-state="authentication_failed"],
+    .connection[data-state="http_error"], .connection[data-state="error"] { color: #99422f; }
     ul { padding-left: 20px; line-height: 1.9; }
-    nav { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 24px; }
-    a { color: #245b38; text-decoration-thickness: 2px; text-underline-offset: 4px; }
-    nav a { display: inline-block; border: 1px solid #b9a784; border-radius: 10px; padding: 10px 16px; font-weight: 600; }
-    a:hover { background: #e3ead7; }
-    a:focus-visible { outline: 3px solid #245b38; outline-offset: 4px; }
     .history { margin-top: 24px; }
     .exchange { border-top: 1px solid #d5c7ac; padding-top: 20px; margin-top: 24px; }
     .exchange h3 { font-size: 14px; font-weight: 500; color: #526154; }
@@ -37,7 +39,6 @@
     .speaker { font-size: 13px; font-weight: 700; margin-bottom: 6px; }
     .message { white-space: pre-wrap; overflow-wrap: anywhere; margin-top: 0; }
     .reply { background: #e7eddf; border-radius: 12px; padding: 16px; }
-    footer { padding-top: 32px; }
     @media (max-width: 600px) {
       main { padding: 24px 18px; }
       .hero { padding-top: 24px; flex-direction: column-reverse; align-items: flex-start; }
@@ -57,22 +58,38 @@
       <div class="hero-content">
         <p class="eyebrow">Telegram Home Assistant Interface</p>
         <h1 id="welcome">Ah, there you are.<br>Welcome home.</h1>
-        <p class="intro">Check and control your smart home through Telegram.
-          Just don't ask me where the remote is.</p>
+        <p class="intro">Ask Dougal to check or control your smart home through Telegram.
+          Don't ask him to turn the TV on if Jack is around.</p>
       </div>
       <img class="portrait" src="/dougal.jpeg" width="768" height="768" alt="Dougal smiling">
     </section>
     <div class="cards">
       <section class="card" aria-labelledby="service">
         <h2 id="service">Keeping an eye on things</h2>
-        <p class="muted">Service uptime</p>
-        <p class="uptime" id="uptime" data-seconds="__UPTIME_SECONDS__">__UPTIME__</p>
-        <p class="muted">Since this service instance started. Updates automatically.</p>
-        <noscript><p class="muted">Enable JavaScript or refresh the page to update uptime.</p></noscript>
-        <nav aria-label="Service endpoints">
-          <a href="/health">Health JSON</a>
-          <a href="/metrics">Metrics</a>
-        </nav>
+        <dl class="status-grid">
+          <div class="wide">
+            <dt>Service uptime</dt>
+            <dd id="uptime" data-seconds="__UPTIME_SECONDS__">__UPTIME__</dd>
+          </div>
+          <div class="wide">
+            <dt>Home Assistant</dt>
+            <dd class="connection" id="home-assistant-status">Checking...</dd>
+          </div>
+          <div class="wide">
+            <dt>Last message received</dt>
+            <dd id="last-message">Checking...</dd>
+          </div>
+          <div>
+            <dt>Text messages*</dt>
+            <dd id="text-messages">Checking...</dd>
+          </div>
+          <div>
+            <dt>Voice messages*</dt>
+            <dd id="voice-messages">Checking...</dd>
+          </div>
+        </dl>
+        <p class="muted">*Counts from the last 30 days of completed exchanges.</p>
+        <noscript><p class="muted">Enable JavaScript to see live status and update uptime.</p></noscript>
       </section>
       <section class="card" aria-labelledby="getting-started">
         <h2 id="getting-started">Start with a message</h2>
@@ -89,14 +106,12 @@
     <section class="card history" aria-labelledby="history">
       <h2 id="history">A little catch-up</h2>
       <p>Recent messages between your Telegram users and Dougal, newest exchanges first.</p>
-      <p class="muted">Visible to anyone who can open this page. The latest 100 exchanges
-        across all allowlisted users are kept in memory and cleared on restart.
+      <p class="muted">Visible to anyone who can open this page. Exchanges
+        across all allowlisted users are stored for 30 days.
         Refresh to see new replies. Telegram display names are shown;
         numeric user IDs are not stored in history or displayed.</p>
       __HISTORY__
     </section>
-    <footer class="muted">This page confirms the web service is responding, not the health
-      of Telegram, the AI provider, or Home Assistant. Keep it on your trusted network.</footer>
   </main>
   <script>
     const uptime = document.getElementById("uptime");
@@ -141,6 +156,90 @@
 
     setInterval(renderUptime, 1000);
     setTimeout(syncUptime, 15000);
+
+    const lastMessage = document.getElementById("last-message");
+    const textMessages = document.getElementById("text-messages");
+    const voiceMessages = document.getElementById("voice-messages");
+    const homeAssistantStatus = document.getElementById("home-assistant-status");
+    let lastMessageTime = null;
+    let messageStatusAvailable = false;
+
+    function renderLastMessage() {
+      if (!messageStatusAvailable) return;
+      if (lastMessageTime === null) {
+        lastMessage.textContent = "No messages yet";
+        return;
+      }
+      const age = Math.round((lastMessageTime - Date.now()) / 1000);
+      if (Math.abs(age) < 60) {
+        lastMessage.textContent = "Just now";
+        return;
+      }
+      const units = [[86400, "day"], [3600, "hour"], [60, "minute"]];
+      const [divisor, unit] = units.find(([size]) => Math.abs(age) >= size);
+      lastMessage.textContent = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" })
+        .format(Math.round(age / divisor), unit);
+    }
+
+    async function fetchStatus(url) {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 15000);
+      try {
+        const response = await fetch(url, { cache: "no-store", signal: controller.signal });
+        if (!response.ok) throw new Error("Status request failed");
+        return await response.json();
+      } finally {
+        clearTimeout(timeout);
+      }
+    }
+
+    async function syncMessages() {
+      try {
+        const data = await fetchStatus("/api/status");
+        const time = data.last_message_received === null ? null : Date.parse(data.last_message_received);
+        if ((time !== null && !Number.isFinite(time)) ||
+            !Number.isSafeInteger(data.text_messages) || data.text_messages < 0 ||
+            !Number.isSafeInteger(data.voice_messages) || data.voice_messages < 0) {
+          throw new Error("Invalid message status response");
+        }
+        lastMessageTime = time;
+        messageStatusAvailable = true;
+        textMessages.textContent = data.text_messages;
+        voiceMessages.textContent = data.voice_messages;
+        renderLastMessage();
+      } catch {
+        messageStatusAvailable = false;
+        lastMessage.textContent = "Unavailable";
+        textMessages.textContent = "Unavailable";
+        voiceMessages.textContent = "Unavailable";
+      } finally {
+        setTimeout(syncMessages, 15000);
+      }
+    }
+
+    async function syncHomeAssistant() {
+      const labels = {
+        running: "Connected",
+        authentication_failed: "Access denied",
+        unreachable: "Unreachable",
+        http_error: "API error",
+      };
+      try {
+        const data = await fetchStatus("/api/home-assistant-status");
+        if (!Object.hasOwn(labels, data.status)) throw new Error("Invalid connection status");
+        homeAssistantStatus.textContent = labels[data.status];
+        homeAssistantStatus.dataset.state = data.status;
+      } catch {
+        homeAssistantStatus.textContent = "Check unavailable";
+        homeAssistantStatus.dataset.state = "error";
+      } finally {
+        setTimeout(syncHomeAssistant, 30000);
+      }
+    }
+
+    setInterval(renderLastMessage, 1000);
+    syncMessages();
+    syncHomeAssistant();
   </script>
 </body>
 </html>

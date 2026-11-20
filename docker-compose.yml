@@ -15,6 +15,9 @@ services:
       DOUGAL_VOICE_TRANSCRIPTION_URL: ${DOUGAL_VOICE_TRANSCRIPTION_URL:-}
       DOUGAL_VOICE_TRANSCRIPTION_MODEL: ${DOUGAL_VOICE_TRANSCRIPTION_MODEL:-whisper-1}
       DOUGAL_VOICE_TRANSCRIPTION_API_KEY: ${DOUGAL_VOICE_TRANSCRIPTION_API_KEY:-}
+      DOUGAL_HISTORY_PATH: /app/data/history.sqlite3
+    volumes:
+      - dougal-data:/app/data
     ports:
       - "8000:8000"
     healthcheck:
@@ -26,3 +29,6 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
+
+volumes:
+  dougal-data:

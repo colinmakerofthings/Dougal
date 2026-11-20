@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import sqlite3
 from datetime import timedelta
 
 import httpx
@@ -81,6 +82,20 @@ def build_telegram_application(
             or user.id not in allowed_ids
         ):
             return
+
+        async def record_received() -> bool:
+            if history is None:
+                return True
+            try:
+                await history.record_received()
+            except (OSError, sqlite3.Error) as error:
+                logger.error("Could not record message receipt (%s)", type(error).__name__)
+                await message.reply_text(
+                    "I couldn't record that message, so I couldn't process it. Please try again."
+                )
+                return False
+            return True
+
         text = message.text
         is_voice = False
         if not text:
@@ -97,8 +112,8 @@ def build_telegram_application(
                 await message.reply_text("Please send a voice note up to 30 seconds and 2 MiB.")
                 return
             is_voice = True
-            if history is not None:
-                history.record_received()
+            if not await record_received():
+                return
             try:
                 text = await _transcribe_voice(
                     voice,
@@ -112,8 +127,8 @@ def build_telegram_application(
                     "I couldn't transcribe that voice note. Please try again or send text."
                 )
                 return
-        elif history is not None:
-            history.record_received()
+        elif not await record_received():
+            return
         try:
             answer = await agent.respond(text)
         except RateLimitError as error:
@@ -156,7 +171,11 @@ def build_telegram_application(
                 await message.reply_text(part)
             history_answer = answer
         if history is not None:
-            history.add(text, history_answer, user_name=user.full_name, is_voice=is_voice)
+            try:
+                await history.add(text, history_answer, user_name=user.full_name, is_voice=is_voice)
+            except (OSError, sqlite3.Error) as error:
+                logger.error("Could not save message history (%s)", type(error).__name__)
+                await message.reply_text("I couldn't save this exchange to history.")
 
     message_filter = filters.TEXT & ~filters.COMMAND
     if transcription_url is not None:

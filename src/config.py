@@ -1,5 +1,7 @@
 """Environment-backed application settings."""
 
+from pathlib import Path
+
 from pydantic import Field, HttpUrl, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -23,6 +25,7 @@ class Settings(BaseSettings):
     dougal_voice_transcription_url: HttpUrl | None = None
     dougal_voice_transcription_model: str = "whisper-1"
     dougal_voice_transcription_api_key: SecretStr | None = None
+    dougal_history_path: Path = Path("data/history.sqlite3")
 
     @field_validator("dougal_voice_transcription_url", mode="before")
     @classmethod

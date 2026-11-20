@@ -1,8 +1,10 @@
 """FastAPI service entrypoint and managed Telegram polling lifecycle."""
 
+import asyncio
 import logging
+import sqlite3
 import time
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from collections.abc import AsyncIterator
 from html import escape
 from pathlib import Path
@@ -28,10 +30,19 @@ LANDING_PAGE = Path(__file__).with_name("landing.html").read_text(encoding="utf-
 def create_app(settings: Settings | None = None) -> FastAPI:
     configured = settings or Settings()
     started_at = time.monotonic()
-    history = MessageHistory()
+    history = MessageHistory(configured.dougal_history_path)
+
+    async def clean_history() -> None:
+        while True:
+            await asyncio.sleep(3600)
+            try:
+                await history.purge_expired()
+            except (OSError, sqlite3.Error) as error:
+                logger.error("History cleanup failed (%s)", type(error).__name__)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        await history.initialize()
         openai_options: dict[str, str] = {
             "api_key": configured.openai_api_key.get_secret_value()
         }
@@ -50,6 +61,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
         telegram = build_telegram_application(configured, agent, history=history)
         telegram_initialized = False
+        cleanup_task = asyncio.create_task(clean_history())
         try:
             await telegram.initialize()
             telegram_initialized = True
@@ -60,6 +72,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             app.state.telegram = telegram
             yield
         finally:
+            cleanup_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await cleanup_task
             if telegram.updater is not None and telegram.updater.running:
                 await telegram.updater.stop()
             if telegram.running:
@@ -88,6 +103,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         hours, remainder = divmod(remainder, 3600)
         minutes, seconds = divmod(remainder, 60)
         uptime = f"{days}d {hours}h {minutes}m {seconds}s"
+        history_items = await history.get_exchanges()
         exchanges = "".join(
             '<article class="exchange">'
             '<h3>Exchange <time datetime="'
@@ -100,7 +116,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             '<p class="speaker">Dougal</p>'
             f'<p class="message reply">{escape(exchange.reply)}</p>'
             "</article>"
-            for exchange in reversed(history.exchanges)
+            for exchange in reversed(history_items)
         ) or '<p class="muted">No messages yet. Send Dougal a private text message in Telegram.</p>'
         return HTMLResponse(
             LANDING_PAGE.replace("__UPTIME_SECONDS__", str(elapsed))
@@ -125,16 +141,27 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get("/api/status")
     async def status(response: Response) -> dict[str, str | int | None]:
         response.headers["Cache-Control"] = "no-store"
-        received_at = history.last_message_received_at
-        exchanges = history.exchanges
-        voice_messages = sum(exchange.is_voice for exchange in exchanges)
+        history_status = await history.get_status()
+        received_at = history_status.last_message_received_at
         return {
             "last_message_received": (
                 received_at.isoformat() if received_at is not None else None
             ),
-            "text_messages": len(exchanges) - voice_messages,
-            "voice_messages": voice_messages,
+            "text_messages": history_status.text_messages,
+            "voice_messages": history_status.voice_messages,
         }
+
+    @app.get("/api/home-assistant-status")
+    async def home_assistant_status(response: Response) -> dict[str, str | int]:
+        response.headers["Cache-Control"] = "no-store"
+        client = HomeAssistantClient(
+            configured.home_assistant_url,
+            configured.home_assistant_token.get_secret_value(),
+        )
+        try:
+            return await client.get_status()
+        finally:
+            await client.close()
 
     @app.get("/metrics", response_class=PlainTextResponse)
     async def metrics() -> str:
